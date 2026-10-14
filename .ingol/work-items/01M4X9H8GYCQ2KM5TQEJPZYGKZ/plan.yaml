@@ -1,0 +1,13 @@
+schema_version: "1"
+work_item: 01M4X9H8GYCQ2KM5TQEJPZYGKZ
+status: approved
+next_gate: integrate
+owner: "Carlos Diego Mondrik"
+executor: "Claude (sesion de INGOL)"
+branch: "trabajo-2-lectura-memoria"
+steps:
+  - implement
+evaluations:
+  - criterion: AC01
+    method: deterministic
+    control: "The project's CI passes on the pull request."
