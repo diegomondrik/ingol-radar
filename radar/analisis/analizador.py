@@ -23,7 +23,8 @@ Reglas que se cumplen siempre:
   texto del artículo. Una novedad que la dispara en el título o la frase se trata como sospechosa aunque
   el modelo no la marque (aísla a las vecinas, no pasa a la segunda pasada). Si dispara en el texto del
   artículo, el artículo SE USA igual (puede ser un artículo sobre inyección de instrucciones que cita un
-  ejemplo): la segunda pasada es de a una, lleva un aviso en el prompt y el análisis queda con
+  ejemplo): la segunda pasada es de a una, lleva un aviso fijo en el prompt (el fragmento va como dato,
+  en el bloque de datos) y el análisis queda con
   `sospecha_mecanica` y `articulo.instrucciones_detectadas`.
 - Lectura de artículos: tiene un presupuesto de pared por corrida (15 minutos) y se corta tras 5
   lecturas fallidas seguidas; lo que no se lee queda con la primera pasada y el motivo.
@@ -308,7 +309,8 @@ def _una_segunda(corrida: _Corrida, clave: str, nov: Novedad, lector: LectorArti
         # instrucciones) o ser un intento. Se usa igual, como dato, de a una y con el aviso en el prompt; queda marcado.
         r.analizadas[clave] = dataclasses.replace(r.analizadas[clave], sospecha_mecanica=True)
         if corrida.contexto is not None:
-            sistema = prompt.construir_sistema(corrida.contexto, True, hallazgo[1])
+            sistema = prompt.construir_sistema(corrida.contexto, True, True)  # aviso fijo, sin la frase
+        payload["instruccion_detectada"] = prompt.frase_detectada(hallazgo[1]) or "(fragmento no legible)"
     corrida.unidades += 1
     r.segundas += 1
     ok, fallas = corrida._llamar([payload], sistema)
