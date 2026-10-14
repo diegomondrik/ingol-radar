@@ -336,7 +336,7 @@ def _seccion_sin_analizar(corrida: Corrida) -> str:
     r = corrida.resultado
     if r.por_tope:
         nota = (
-            f"Se alcanzó el tope de la corrida ({e(corrida.tope)} análisis): {e(r.por_tope)} quedaron sin analizar por eso. "
+            f"Se alcanzó el tope de la corrida ({e(corrida.tope)} análisis): {e(r.por_tope)} {'quedó' if r.por_tope == 1 else 'quedaron'} sin analizar por eso. "
             + nota
         )
     abierto = " open" if len(items) <= MAX_SIN_ANALIZAR_ABIERTAS else ""

@@ -94,6 +94,9 @@ th{font-size:.78rem;letter-spacing:.04em;text-transform:uppercase;color:var(--mu
 tr.fila-vacia td{background:var(--warn-soft)}
 tr.fila-error td{background:var(--crit-soft)}
 td.nombre{font-weight:600}
+table{overflow-wrap:normal}
+td.nombre,td small{overflow-wrap:anywhere}
+td[data-label="Cubre desde"]{white-space:nowrap}
 td small{display:block;color:var(--muted);font-weight:400}
 ul.sin{margin:0;padding-left:1.1em}
 ul.sin li{margin:8px 0}
