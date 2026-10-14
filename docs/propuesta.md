@@ -25,7 +25,10 @@ biblioteca estándar [supuesto], en cuatro partes:
    control?, ¿mejora el software que sale?, ¿es un dato de adaptador o toca el Core?, ¿lo regala el proveedor?"] y da su opinión: si le sirve a INGOL o no, por qué, en qué consiste el cambio
    y qué implica para el desarrollo [P3, P4]. El ruido se descarta con esa misma opinión [supuesto]. Si el owner trae
    una idea propia, se analiza igual [P3: "si te lo digo lo debes analizar"]. Lo que propone es consejo [pedido: "lo
-   que propone es consejo, como un análisis externo"].
+   que propone es consejo, como un análisis externo"]. Va en dos pasadas [cambio aprobado, ver «Aprobación»]: la
+   primera con título y frase descarta el ruido; la segunda, sólo para las que dieron «sí» o «tal vez», baja el
+   artículo del mismo sitio de la fuente, recortado, y lo analiza de nuevo. Un video sin texto se queda con el título
+   y lo dice.
 4. **Página**: un archivo HTML [supuesto] con las novedades numeradas [P3: "sí a la 2 y la 5"], las que sirven primero
    [supuesto], cada una con enlace, frase, análisis y acción propuesta [pedido, P4], y la cobertura por fuente.
 
@@ -58,7 +61,7 @@ resúmenes se cuentan en `d4-results.md` de INGOL [pedido: "AC08 los cuenta en `
 
 | Efecto | Detalle | Fuente |
 |---|---|---|
-| Lectura por la red | Anthropic noticias e ingeniería (página), versiones de Claude Code (feed), OpenAI (feed), Google para desarrolladores (feed), novedades de GitHub (feed), IBM Technology en YouTube (feed), METR (página), Simon Willison (feed), martinfowler.com (feed). A verificar en el trabajo 2: notas de la plataforma Claude, versiones de Codex, OWASP GenAI y OpenSSF; la que no se pueda leer pasa a «para después» | [archivo: fuentes-2026-10-13.md — "Anillo 1", "Anillo 2", "Anillo 3"]; lo de verificar, [supuesto] |
+| Lectura por la red | Anthropic noticias e ingeniería (página), versiones de Claude Code (feed), OpenAI (feed), Google para desarrolladores (feed), novedades de GitHub (feed), IBM Technology en YouTube (feed), METR (página), Simon Willison (feed), martinfowler.com (feed). A verificar en el trabajo 2: notas de la plataforma Claude, versiones de Codex, OWASP GenAI y OpenSSF; la que no se pueda leer pasa a «para después». Además, el artículo de cada novedad que pasa la primera pasada, sólo del mismo sitio que su fuente | [archivo: fuentes-2026-10-13.md — "Anillo 1", "Anillo 2", "Anillo 3"]; lo de verificar, [supuesto]; los artículos, [cambio aprobado] |
 | Proveedor de modelo | Claude, por la suscripción del owner, con `claude -p` | [P2]; `claude -p`, [supuesto] |
 | Clave | Ninguna nueva: usa la sesión de Claude ya iniciada en la máquina | [P2: "sin clave nueva"]; la sesión, [supuesto] |
 | Tope por corrida | Sin gasto en dinero; consume cuota. Hasta 300 novedades analizadas por corrida, contando un reintento de las que fallen; si la ventana trae más, la página dice cuántas quedaron sin analizar | [P2: "consume tu cuota"]; el número y lo que pasa si se supera, [supuesto] |
@@ -75,7 +78,7 @@ el PR [pedido: "su salida va en el texto del PR"].
 | 0 | Esta propuesta | `docs/propuesta.md` | critical: no; lane: standard; approvals: none; fast: no |
 | 1 | Rutas sensibles de la parte 9 | `.ingol/policies/fast-lane.yaml`, `docs/propuesta.md`, `docs/propuesta.html` | critical: yes; lane: controlled; approvals: owner_approval; fast: no |
 | 2 | Lectura y memoria, con pruebas sobre recortes, dos ventanas seguidas y entradas armadas | `radar/lectura/**`, `radar/memoria/**`, `tests/lectura/**` | critical: no; lane: standard; approvals: none; fast: no |
-| 3 | Análisis con Claude, con pruebas de entradas armadas | `radar/analisis/**`, `tests/analisis/**` | critical: no; lane: standard; approvals: none; fast: no |
+| 3 | Análisis con Claude en dos pasadas y lectura del artículo, con pruebas de entradas armadas | `radar/analisis/**`, `radar/lectura/**`, `tests/analisis/**`, `tests/lectura/**`, `docs/propuesta.md`, `docs/propuesta.html` | critical: yes (rutas sensibles del trabajo 1); lane: controlled; approvals: owner_approval; fast: no |
 | 4 | Página, comando y primer resumen | `radar/pagina/**`, `radar/__main__.py`, `tests/pagina/**`, `README.md` | critical: no; lane: standard; approvals: none; fast: no |
 
 Las pruebas de entradas armadas siguen la habilidad `entradas-adversariales` [pedido: "aplica la habilidad de
@@ -149,3 +152,7 @@ fecha dentro de esas cuatro semanas, no una lista del owner [supuesto].
 - Sus palabras: "aprobada la propuesta para el radar."
 - Cambio aprobado el 2026-10-14, antes del trabajo 1: sin zonas, sólo las dos rutas sensibles (parte 9). Sus palabras:
   "ok con la opcion de la decision"
+- Cambio aprobado el 2026-10-14, durante el trabajo 3: el análisis va en dos pasadas y la segunda lee el artículo
+  (parte 2). Motivo: en la primera vuelta de afinado, con sólo el título, los 7 artículos no alcanzaron para decir en
+  qué consiste el cambio y los 4 datos inventados cayeron en ellos. Su respuesta, a la pregunta «¿El radar baja también
+  el texto de los artículos que pasan el primer filtro…?»: "Sí, en dos pasadas (Recomendado)"
