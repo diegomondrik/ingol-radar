@@ -31,10 +31,16 @@ class FuentesTest(unittest.TestCase):
         self.assertEqual(len({f.id for f in FUENTES}), len(FUENTES))
         self.assertTrue(all(f.url.startswith("https://") for f in FUENTES))
 
-    def test_solo_las_paginas_llevan_analizador(self):
+    def test_cada_fuente_lleva_su_analizador(self):
+        from radar.lectura.analizar import analizar_atom, analizar_rss
+
         for f in FUENTES:
-            self.assertEqual(f.analizador is not None, f.tipo == "pagina", f.id)
+            self.assertTrue(callable(f.analizador), f.id)
             self.assertTrue(f.nombre)
+            if f.tipo == "atom":
+                self.assertIs(f.analizador, analizar_atom, f.id)
+            elif f.tipo == "rss":
+                self.assertIs(f.analizador, analizar_rss, f.id)
 
     def test_por_id(self):
         self.assertEqual(por_id("metr").tipo, "pagina")

@@ -103,13 +103,12 @@ class DoctypeTest(unittest.TestCase):
             parser.close()
 
     def test_segunda_barrera_esta_conectada_aunque_la_primera_no_vea_nada(self):
-        import re
         from unittest import mock
 
         from radar.lectura import analizar as modulo
 
         for texto in (BOMBA, EXTERNA, SOLO_DOCTYPE):
-            with mock.patch.object(modulo, "_DOCTYPE", re.compile("(?!)")):  # una expresión que nunca coincide
+            with mock.patch.object(modulo, "_revisar_prologo", lambda t: None):  # la primera barrera, rota
                 with self.assertRaises(DocumentoRechazado) as ctx:
                     parsear_xml(texto)
             self.assertIn("DOCTYPE", str(ctx.exception))

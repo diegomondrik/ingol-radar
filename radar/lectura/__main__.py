@@ -10,21 +10,20 @@ import argparse
 import json
 import re
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 
 from .descarga import descargar
 from .fuentes import FUENTES
-from .lector import leer
+from .lector import DIAS_POR_DEFECTO, leer, ventana
 
-DIAS_POR_DEFECTO = 28
 _FECHA = re.compile(r"\d{4}-\d{2}-\d{2}", re.ASCII)
 
 
-def _fecha(valor: str) -> datetime:
+def _fecha(valor: str) -> date:
     if not _FECHA.fullmatch(valor):
         raise argparse.ArgumentTypeError(f"{valor!r} no es una fecha AAAA-MM-DD")
     try:
-        return datetime.strptime(valor, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        return datetime.strptime(valor, "%Y-%m-%d").date()
     except ValueError as exc:
         raise argparse.ArgumentTypeError(f"{valor!r} no es una fecha válida") from exc
 
@@ -39,15 +38,15 @@ def main(argv=None, fetcher=descargar, ahora=None, salida=None) -> int:
         prog="python -m radar.lectura",
         description="Lee las fuentes públicas y muestra la cobertura y los títulos. No guarda nada.",
     )
-    parser.add_argument("--desde", type=_fecha, help="primer día de la ventana (por defecto, hace 28 días)")
+    parser.add_argument("--desde", type=_fecha, help=f"primer día de la ventana (por defecto, hace {DIAS_POR_DEFECTO} días)")
     parser.add_argument("--hasta", type=_fecha, help="último día de la ventana, inclusive (por defecto, ahora)")
     parser.add_argument("--json", action="store_true", help="salida en JSON")
     args = parser.parse_args(argv)
 
     ahora = ahora or datetime.now(timezone.utc)
-    hasta = args.hasta + timedelta(days=1) - timedelta(microseconds=1) if args.hasta else ahora
-    desde = args.desde or (hasta - timedelta(days=DIAS_POR_DEFECTO))
-    if desde > hasta:
+    try:
+        desde, hasta = ventana(args.desde, args.hasta, ahora)
+    except ValueError:
         parser.error("--desde es posterior a --hasta")
 
     novedades, cobertura = leer(FUENTES, desde, hasta, fetcher, ahora=ahora)

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import html
+import ipaddress
 import re
 import unicodedata
 from datetime import datetime, timedelta, timezone
@@ -74,17 +75,33 @@ def alimentar(parser: HTMLParser, texto: str) -> None:
         parser.handle_data(html.unescape(resto))
 
 
+def _invisible(ch: str) -> bool:
+    """Control, formato (dirección, ancho cero), surrogate o selector de variación."""
+    o = ord(ch)
+    return (
+        unicodedata.category(ch) in ("Cc", "Cf", "Cs")
+        or 0xFE00 <= o <= 0xFE0F
+        or 0xE0100 <= o <= 0xE01EF
+    )
+
+
 def _depurar(texto: str) -> str:
-    """Espacios colapsados; sin controles, sin caracteres de formato (dirección, ancho cero)."""
+    """Espacios colapsados; sin controles, sin caracteres de formato ni selectores de variación."""
     salida = []
     for ch in texto:
         if ch.isspace():
             salida.append(" ")
-        elif unicodedata.category(ch) in ("Cc", "Cf", "Cs"):
+        elif _invisible(ch):
             continue
         else:
             salida.append(ch)
     return " ".join("".join(salida).split())
+
+
+# Cinturón: un `<` que abre una etiqueta, un cierre, un comentario o una instrucción no puede
+# quedar en un texto que se entrega como plano. Se quita el `<` (el resto queda como texto inerte).
+_APERTURA = re.compile(r"<(?=[A-Za-z/!?])")
+MAX_PASADAS = 10
 
 
 def _recortar(texto: str, limite: int) -> str:
@@ -94,26 +111,31 @@ def _recortar(texto: str, limite: int) -> str:
 
 
 def limpiar_texto(valor, limite: int) -> str:
-    """Texto plano, limpio y de a lo sumo `limite` caracteres. Nunca lanza."""
+    """Texto plano, limpio y de a lo sumo `limite` caracteres. Nunca lanza.
+
+    Se repite (sacar etiquetas, resolver entidades, quitar invisibles) hasta que el texto no
+    cambia: un título escapado varios niveles (`&amp;amp;lt;img ...`) vuelve a ser una etiqueta
+    tras cada resolución y tiene que salir en alguna pasada. Si no converge en MAX_PASADAS, es
+    hostil: devuelve "" (el que llama decide, y una novedad sin título se descarta).
+    """
     if valor is None:
         return ""
     if not isinstance(valor, str):
         valor = str(valor)
     texto = valor[:TOPE_CRUDO]
-    # Hasta tres pasadas: un título escapado dos veces (`&amp;lt;b&amp;gt;`) vuelve a ser una
-    # etiqueta tras la primera y tiene que salir en la segunda. Con texto sin etiquetas la
-    # segunda pasada no cambia nada y se corta ahí.
-    for _ in range(3):
+    for _ in range(MAX_PASADAS):
         extractor = _SacaEtiquetas()
         try:
             alimentar(extractor, texto)
         except Exception:  # noqa: BLE001 - el analizador de HTML no debe tumbar la lectura
             return ""
-        siguiente = "".join(extractor.partes)
+        siguiente = _depurar("".join(extractor.partes))
         if siguiente == texto:
             break
         texto = siguiente
-    return _recortar(_depurar(texto), limite)
+    else:
+        return ""
+    return _recortar(_APERTURA.sub("", texto), limite)
 
 
 def primera_oracion(texto: str, limite: int = LARGO_FRASE) -> str:
@@ -134,7 +156,7 @@ def titulo_de(valor) -> str:
 # ------------------------------------------------------------------------- enlaces
 
 _RECORTE = "".join(chr(c) for c in range(0x21)) + "                 　"
-_PROHIBIDOS = set('\\<>"')
+_PROHIBIDOS = set("\\<>\"'`")
 _ESQUEMAS_OK = ("http", "https")
 _PUERTO = {"http": 80, "https": 443}
 _ESQUEMA = re.compile(r"([a-z][a-z0-9+.\-]*):", re.ASCII)
@@ -142,10 +164,7 @@ _ESQUEMA = re.compile(r"([a-z][a-z0-9+.\-]*):", re.ASCII)
 
 def _tiene_invisibles(texto: str) -> bool:
     """Controles, formato, espacios o caracteres que un enlace no debe traer sin codificar."""
-    return any(
-        ch.isspace() or ch in _PROHIBIDOS or unicodedata.category(ch) in ("Cc", "Cf", "Cs")
-        for ch in texto
-    )
+    return any(ch.isspace() or ch in _PROHIBIDOS or _invisible(ch) for ch in texto)
 
 
 def _esquema_ilegal(texto: str) -> bool:
@@ -163,13 +182,56 @@ def _esquema_ilegal(texto: str) -> bool:
     return m is not None and m.group(1) not in _ESQUEMAS_OK
 
 
+_ETIQUETA_HOST = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", re.ASCII)
+_SUFIJOS_PRIVADOS = (".localhost", ".local", ".internal", ".localdomain")
+
+
+def _es_ip(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return True
+
+
+def host_publico(host) -> bool:
+    """True si `host` (sin corchetes, en minúscula) es un nombre o una IP de internet pública.
+
+    Rechaza: no ASCII (ancho completo, cirílico, `。`: los nombres internacionales van en
+    punycode), `localhost` y los sufijos internos, hosts sin punto, y toda IP que no sea
+    global (loopback, privadas, link-local, CGNAT, reservadas, mapeadas a IPv4 no públicas).
+    Una última etiqueta numérica o con forma de número (`127.1`, `0x7f.0.0.1`) se rechaza: un
+    navegador la lee como una IP.
+    """
+    if not isinstance(host, str) or not host or not host.isascii() or len(host) > 253:
+        return False
+    if "%" in host:
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None
+    if ip is not None:
+        mapeada = getattr(ip, "ipv4_mapped", None)
+        return (mapeada or ip).is_global
+    if "." not in host or host == "localhost" or host.endswith(_SUFIJOS_PRIVADOS):
+        return False
+    etiquetas = host.split(".")
+    if not all(_ETIQUETA_HOST.fullmatch(e) for e in etiquetas):
+        return False
+    return etiquetas[-1][0].isalpha()
+
+
 def validar_enlace(valor, base: str | None = None) -> str | None:
     """Devuelve el enlace absoluto http(s) normalizado, o None si no es válido.
 
     Rechaza otros esquemas escritos de cualquier forma equivalente (mayúsculas,
     controles o espacios al principio o en medio, entidades numéricas o con nombre,
-    `data:`, `vbscript:`), enlaces con usuario o clave, y todo lo que traiga
-    controles, espacios o caracteres de formato adentro.
+    `data:`, `vbscript:`), enlaces con usuario o clave, hosts que no son de internet pública
+    (ver `host_publico`), y todo lo que traiga controles, espacios, caracteres de formato o
+    comillas (`"`, `'`, `` ` ``) sin codificar. Se decide con la cadena tal cual viene y se
+    devuelve esa misma cadena normalizada: nunca se evalúa una versión y se entrega otra.
+    http se acepta (es un enlace de novedad); lo que se DESCARGA exige https en descarga.py.
     """
     if not isinstance(valor, str):
         return None
@@ -197,11 +259,11 @@ def validar_enlace(valor, base: str | None = None) -> str | None:
     except ValueError:
         return None
     esquema = partes.scheme.lower()
-    if esquema not in _ESQUEMAS_OK or not host:
+    if esquema not in _ESQUEMAS_OK or not host or not host_publico(host.lower()):
         return None
     if usuario is not None or clave is not None or "@" in partes.netloc:
         return None
-    host = host.lower()
+    host = str(ipaddress.ip_address(host.lower())) if _es_ip(host) else host.lower()  # una sola forma por IP
     if ":" in host:
         host = f"[{host}]"
     netloc = host if puerto in (None, _PUERTO[esquema]) else f"{host}:{puerto}"

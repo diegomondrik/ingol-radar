@@ -13,19 +13,33 @@ import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
 
+from .limpieza import host_publico
 from .modelos import ErrorDescarga
 
 USER_AGENT = "ingol-radar/0.1 (+https://github.com/diegomondrik/ingol-radar)"
 TIMEOUT = 20  # segundos por operación de red
 PLAZO_TOTAL = 60  # segundos para bajar un documento entero (el timeout solo no frena un goteo)
 TOPE_BYTES = 5 * 1024 * 1024
-TROZO = 64 * 1024
+TROZO = 8 * 1024  # trozos chicos: el reloj se mira seguido aunque el servidor gotee
 MAX_REDIRECCIONES = 5
 
 
-def _exigir_https(url: str) -> None:
-    if urlsplit(url).scheme.lower() != "https":
+def _exigir_destino(url: str) -> None:
+    """Sólo https y sólo hacia un host de internet pública (nada de localhost, IP privadas ni link-local).
+
+    No cubre un nombre público que resuelva a una IP privada (DNS rebinding): para eso haría
+    falta resolver y fijar la IP, y la lista de fuentes es fija y de confianza.
+    """
+    try:
+        partes = urlsplit(url)
+        host = partes.hostname
+        partes.port  # noqa: B018 - un puerto fuera de rango levanta ValueError
+    except ValueError as exc:
+        raise ErrorDescarga(f"url ilegible: {url[:200]!r}") from exc
+    if partes.scheme.lower() != "https":
         raise ErrorDescarga(f"sólo se lee por https: {url[:200]!r}")
+    if not host_publico(host):
+        raise ErrorDescarga(f"el destino no es un host público: {url[:200]!r}")
 
 
 class SoloHttps(urllib.request.HTTPRedirectHandler):
@@ -34,7 +48,7 @@ class SoloHttps(urllib.request.HTTPRedirectHandler):
     max_redirections = MAX_REDIRECCIONES
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        _exigir_https(newurl)
+        _exigir_destino(newurl)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
@@ -47,9 +61,22 @@ def _abrir_real(url: str):
     return crear_opener().open(pedido, timeout=TIMEOUT)
 
 
+def _limitar_espera(respuesta, restante: float) -> None:
+    """Mejor esfuerzo: que una lectura bloqueada no pase del plazo restante (timeout del socket)."""
+    try:
+        respuesta.fp.raw._sock.settimeout(max(0.05, min(TIMEOUT, restante)))
+    except (AttributeError, OSError, ValueError):
+        pass  # una respuesta que no es de socket (o ya cerrada): no hay timeout que ajustar
+
+
 def leer_cuerpo(respuesta, tope: int = TOPE_BYTES, plazo: float = PLAZO_TOTAL, reloj=time.monotonic) -> bytes:
-    """Lee la respuesta de a trozos; si pasa el tope o el plazo, error (nunca devuelve algo cortado)."""
+    """Lee la respuesta de a trozos; si pasa el tope o el plazo, error (nunca devuelve algo cortado).
+
+    Usa `read1` (devuelve lo que haya sin esperar a llenar el trozo) y mira el reloj en cada
+    vuelta, así que un servidor que gotea un byte cada tanto no estira la descarga más allá del plazo.
+    """
     inicio = reloj()
+    leer = getattr(respuesta, "read1", None) or respuesta.read
     largo = respuesta.headers.get("Content-Length")
     if largo is not None:
         largo = largo.strip()
@@ -58,15 +85,17 @@ def leer_cuerpo(respuesta, tope: int = TOPE_BYTES, plazo: float = PLAZO_TOTAL, r
     partes: list[bytes] = []
     total = 0
     while True:
-        trozo = respuesta.read(min(TROZO, tope + 1 - total))
+        restante = plazo - (reloj() - inicio)
+        if restante <= 0:
+            raise ErrorDescarga(f"la descarga tardó más de {plazo} segundos")
+        _limitar_espera(respuesta, restante)
+        trozo = leer(min(TROZO, tope + 1 - total))
         if not trozo:
             break
         total += len(trozo)
         if total > tope:
             raise ErrorDescarga(f"la respuesta pasa el tope de {tope} bytes")
         partes.append(trozo)
-        if reloj() - inicio > plazo:
-            raise ErrorDescarga(f"la descarga tardó más de {plazo} segundos")
     return b"".join(partes)
 
 
@@ -83,7 +112,7 @@ def decodificar(cuerpo: bytes, charset: str | None) -> str:
 
 def descargar(url: str, abrir=None) -> str:
     """Baja `url` (https) y devuelve el texto. `abrir` permite inyectar una respuesta falsa."""
-    _exigir_https(url)
+    _exigir_destino(url)
     abrir = abrir or _abrir_real
     try:
         respuesta = abrir(url)

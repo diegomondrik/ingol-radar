@@ -7,9 +7,9 @@ reales: si un cambio de diseño las deja mudas, la fuente queda `vacia` en la co
 
 from __future__ import annotations
 
-import html
 import re
 from datetime import datetime
+from functools import partial
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit
 
@@ -24,18 +24,12 @@ from .limpieza import (
     sin_futuro,
     validar_enlace,
 )
-from .modelos import MAX_ITEMS, DocumentoRechazado, Extraccion, Novedad
+from .modelos import Acumulador, DocumentoRechazado, Extraccion, Novedad
 
 _PIEZAS_POR_ENLACE = 20
 _FECHA_EN_TEXTO = re.compile(r"\b([A-Za-z]{3,9})\.? (\d{1,2}), (\d{4})\b", re.ASCII)
 _FECHA_TITULO = re.compile(r"([A-Za-z]{3,9})\.? (\d{1,2}), (\d{4})", re.ASCII)
 _SEPARADORES = " ·|—–-•,"
-
-
-def _exigir_texto(texto) -> str:
-    if not isinstance(texto, str):
-        raise DocumentoRechazado("el documento no es texto")
-    return texto
 
 
 # ----------------------------------------------------------------- páginas con enlaces
@@ -94,58 +88,64 @@ def _analizar_enlaces(fuente, texto, ahora: datetime, patron: re.Pattern, fecha_
     """Las páginas anthropic.com/news, /engineering y metr.org/blog: enlaces con camino reconocible."""
     parser = _Anclas()
     try:
-        alimentar(parser, _exigir_texto(texto))
+        alimentar(parser, texto)
         parser.terminar()
     except Exception as exc:  # noqa: BLE001 - el HTML hostil se rechaza con error propio
         raise DocumentoRechazado(f"HTML no procesable ({type(exc).__name__})") from exc
     host = (urlsplit(fuente.url).hostname or "").lower()
-    salida = Extraccion()
+    acumulador = Acumulador()
     por_enlace: dict[str, tuple[re.Match, list[str]]] = {}
     for href, piezas in parser.anclas:
-        try:
-            partes = urlsplit(urljoin(fuente.url, html.unescape(href).strip()))
-            hostname = partes.hostname
-        except ValueError:
-            continue
-        if (hostname or "").lower() != host:
-            continue
-        coincide = patron.fullmatch(partes.path)
-        if coincide is None:
-            continue
         enlace = validar_enlace(href, fuente.url)
         if enlace is None:
-            salida.descartadas += 1
+            if _era_de_la_fuente(href, fuente.url, host, patron):
+                acumulador.descartar()  # cumple el camino y el servidor, pero no el filtro
+            continue
+        partes = urlsplit(enlace)  # se decide con el enlace ya validado: el mismo que se entrega
+        coincide = patron.fullmatch(partes.path)
+        if partes.hostname != host or coincide is None:
             continue
         if enlace in por_enlace:
             por_enlace[enlace][1].extend(piezas)
         else:
             por_enlace[enlace] = (coincide, list(piezas))
     for enlace, (coincide, piezas) in por_enlace.items():
-        if len(salida.novedades) >= MAX_ITEMS:
-            salida.recortadas += 1
-            continue
-        fecha = fecha_de_numeros(*coincide.groups()[:3]) if fecha_del_camino else None
-        resto = []
-        for pieza in piezas:
-            m = _FECHA_EN_TEXTO.search(pieza)
-            if m:
-                if not fecha_del_camino and fecha is None:
-                    fecha = fecha_de_nombre(*m.groups())
-                pieza = f"{pieza[: m.start()]} {pieza[m.end():]}".strip(_SEPARADORES)
-            if _tiene_letras(pieza):
-                resto.append(pieza)
-        titulo = max(resto, key=len) if resto else _humanizar(coincide.group("slug"))
-        salida.novedades.append(
-            Novedad(
-                fuente=fuente.id,
-                clave=clave_de(fuente.id, None, enlace),
-                titulo=limpiar_texto(titulo, 300),
-                enlace=enlace,
-                fecha=sin_futuro(fecha, ahora),
-                frase="",  # estas páginas no traen un resumen que se pueda tomar sin adivinar
-            )
+        clave = clave_de(fuente.id, None, enlace)
+        acumulador.registrar(
+            clave, partial(_novedad_de_enlace, fuente, clave, ahora, enlace, coincide, piezas, fecha_del_camino)
         )
-    return salida
+    return acumulador.resultado()
+
+
+def _era_de_la_fuente(href: str, base: str, host: str, patron: re.Pattern) -> bool:
+    """Para contar descartadas: el href crudo, sin interpretar entidades, apuntaba a esta fuente y a un camino que buscamos."""
+    try:
+        partes = urlsplit(urljoin(base, href.strip()))
+        return (partes.hostname or "").lower() == host and patron.fullmatch(partes.path) is not None
+    except ValueError:
+        return False
+
+
+def _novedad_de_enlace(fuente, clave, ahora, enlace, coincide, piezas, fecha_del_camino) -> Novedad:
+    fecha = fecha_de_numeros(*coincide.groups()[:3]) if fecha_del_camino else None
+    resto = []
+    for pieza in piezas:
+        m = _FECHA_EN_TEXTO.search(pieza)
+        if m:
+            if not fecha_del_camino and fecha is None:
+                fecha = fecha_de_nombre(*m.groups())
+            pieza = f"{pieza[: m.start()]} {pieza[m.end():]}".strip(_SEPARADORES)
+        if _tiene_letras(pieza):
+            resto.append(pieza)
+    titulo = max(resto, key=len) if resto else _humanizar(coincide.group("slug"))
+    return Novedad(
+        fuente=fuente.id,
+        clave=clave,
+        titulo=limpiar_texto(titulo, 300),
+        enlace=enlace,
+        fecha=sin_futuro(fecha, ahora),
+        frase="",  # estas páginas no traen un resumen que se pueda tomar sin adivinar
+    )
 
 
 _PATRON_ANTHROPIC_NOTICIAS = re.compile(r"/news/(?P<slug>[A-Za-z0-9][A-Za-z0-9_.\-]*)/?")
@@ -153,7 +153,7 @@ _PATRON_ANTHROPIC_INGENIERIA = re.compile(r"/engineering/(?P<slug>[A-Za-z0-9][A-
 _PATRON_METR = re.compile(r"/blog/(\d{4})-(\d{2})-(\d{2})-(?P<slug>[^/]+)/?", re.ASCII)
 
 
-def analizar_anthropic_noticias(fuente, texto, ahora: datetime) -> Extraccion:
+def analizar_anthropic_noticias(fuente, texto: str, ahora: datetime) -> Extraccion:
     return _analizar_enlaces(fuente, texto, ahora, _PATRON_ANTHROPIC_NOTICIAS, fecha_del_camino=False)
 
 
@@ -241,36 +241,30 @@ class _Notas(HTMLParser):
             self._emitir(self._pila.pop())
 
 
-def analizar_claude_plataforma(fuente, texto, ahora: datetime) -> Extraccion:
+def analizar_claude_plataforma(fuente, texto: str, ahora: datetime) -> Extraccion:
     parser = _Notas()
     try:
-        alimentar(parser, _exigir_texto(texto))
+        alimentar(parser, texto)
         parser.terminar()
     except Exception as exc:  # noqa: BLE001 - el HTML hostil se rechaza con error propio
         raise DocumentoRechazado(f"HTML no procesable ({type(exc).__name__})") from exc
     enlace = validar_enlace(fuente.url)
-    salida = Extraccion()
-    claves: set[str] = set()
+    acumulador = Acumulador()
     for fecha, contenido in parser.items:
-        if len(salida.novedades) >= MAX_ITEMS:
-            salida.recortadas += 1
-            continue
         if enlace is None:
-            salida.descartadas += 1
+            acumulador.descartar()
             continue
         clave = f"{fuente.id}:{enlace}#{fecha.date().isoformat()}#{hash_corto(contenido)}"
-        if clave in claves:
-            salida.descartadas += 1
-            continue
-        claves.add(clave)
-        salida.novedades.append(
-            Novedad(
-                fuente=fuente.id,
-                clave=clave,
-                titulo=limpiar_texto(contenido, 160),
-                enlace=enlace,
-                fecha=sin_futuro(fecha, ahora),
-                frase=primera_oracion(contenido),
-            )
-        )
-    return salida
+        acumulador.registrar(clave, partial(_novedad_de_nota, fuente, clave, ahora, enlace, fecha, contenido))
+    return acumulador.resultado()
+
+
+def _novedad_de_nota(fuente, clave, ahora, enlace, fecha, contenido) -> Novedad:
+    return Novedad(
+        fuente=fuente.id,
+        clave=clave,
+        titulo=limpiar_texto(contenido, 160),
+        enlace=enlace,
+        fecha=sin_futuro(fecha, ahora),
+        frase=primera_oracion(contenido),
+    )

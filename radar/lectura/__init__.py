@@ -1,7 +1,7 @@
 """Lectura de las fuentes públicas del radar: baja, analiza y entrega novedades limpias."""
 
 from .fuentes import FUENTES, Fuente, por_id
-from .lector import leer
+from .lector import leer, ventana
 from .modelos import (
     MAX_ITEMS,
     Cobertura,
@@ -22,4 +22,5 @@ __all__ = [
     "Novedad",
     "leer",
     "por_id",
+    "ventana",
 ]

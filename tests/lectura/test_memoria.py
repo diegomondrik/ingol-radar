@@ -20,11 +20,19 @@ from pathlib import Path
 from unittest import mock
 
 from radar.lectura.modelos import Novedad
-from radar.memoria import RUTA_POR_DEFECTO, Memoria, MemoriaCorrupta, MemoriaError, MemoriaOcupada
+from radar.memoria import (
+    RUTA_POR_DEFECTO,
+    Memoria,
+    MemoriaCorrupta,
+    MemoriaDemasiadoGrande,
+    MemoriaError,
+    MemoriaOcupada,
+)
 from radar.memoria import memoria as modulo_memoria
 
 RAIZ = Path(__file__).resolve().parents[2]
 CUANDO = datetime(2026, 10, 10, 8, 0, tzinfo=timezone.utc)
+HOY = datetime(2026, 10, 14, 12, 0, tzinfo=timezone.utc)  # el reloj fijo de las pruebas (poda)
 
 
 def nov(clave: str, titulo: str = "Titulo", fuente: str = "openai") -> Novedad:
@@ -42,6 +50,10 @@ class Base(unittest.TestCase):
         self.carpeta = Path(self.dir.name)
         self.ruta = self.carpeta / "generated" / "memoria.json"
         self.candado = self.ruta.with_name("memoria.json.lock")
+        # La poda mira "ahora": con el reloj fijo, las pruebas no dependen del día en que corren.
+        parche = mock.patch.object(modulo_memoria, "_ahora", return_value=HOY)
+        parche.start()
+        self.addCleanup(parche.stop)
 
     def sembrar(self, *claves: str) -> bytes:
         """Deja una memoria guardada con esas claves y devuelve sus bytes."""
@@ -58,8 +70,17 @@ class Base(unittest.TestCase):
 
 
 class UsoTest(Base):
-    def test_ruta_por_defecto(self):
-        self.assertEqual(RUTA_POR_DEFECTO, Path("generated") / "memoria.json")
+    def test_ruta_por_defecto_esta_anclada_a_la_raiz_del_repo_y_no_al_directorio_de_trabajo(self):
+        self.assertTrue(RUTA_POR_DEFECTO.is_absolute())
+        self.assertEqual(RUTA_POR_DEFECTO, RAIZ / "generated" / "memoria.json")
+        anterior = os.getcwd()
+        with tempfile.TemporaryDirectory() as otro:
+            os.chdir(otro)
+            try:  # desde otro directorio de trabajo, la ruta por defecto sigue siendo la misma
+                self.assertEqual(modulo_memoria.RUTA_POR_DEFECTO, RAIZ / "generated" / "memoria.json")
+                self.assertTrue(modulo_memoria.RUTA_POR_DEFECTO.is_absolute())
+            finally:
+                os.chdir(anterior)
 
     def test_archivo_que_falta_es_memoria_vacia_y_crea_la_carpeta(self):
         self.assertFalse(self.ruta.parent.exists())
@@ -142,7 +163,18 @@ ARCHIVOS_ROTOS = {
     "binario": bytes(range(256)),
     "utf-16 con BOM": '{"version": 1, "vistas": {}}'.encode("utf-16"),
     "utf-8 invalido": b'{"version": 1, "vistas": {"a\xff": {}}}',
-    "BOM utf-8 delante": b'\xef\xbb\xbf{"version": 1, "vistas": {}}',
+    "BOM doble": b'\xef\xbb\xbf\xef\xbb\xbf{"version": 1, "vistas": {}}',
+    "clave repetida en la raiz": b'{"version": 1, "vistas": {}, "version": 1}',
+    "vistas repetidas": b'{"version": 1, "vistas": {}, "vistas": {}}',
+    "entrada repetida": (
+        b'{"version": 1, "vistas": {"a": {"fuente": "f", "titulo": "t", "enlace": "e", '
+        b'"primera_vez": "2026-10-10T08:00:00+00:00"}, "a": {"fuente": "f", "titulo": "t", '
+        b'"enlace": "e", "primera_vez": "2026-10-10T08:00:00+00:00"}}}'
+    ),
+    "campo repetido en una entrada": (
+        b'{"version": 1, "vistas": {"a": {"fuente": "f", "fuente": "g", "titulo": "t", '
+        b'"enlace": "e", "primera_vez": "2026-10-10T08:00:00+00:00"}}}'
+    ),
     "NaN": b'{"version": NaN, "vistas": {}}',
     "lista en la raiz": b"[]",
     "null": b"null",
@@ -203,14 +235,35 @@ class CorruptaTest(Base):
                 Memoria.abrir(self.ruta)
         self.assertEqual(self.ruta.read_bytes(), b"basura")
 
-    def test_archivo_demasiado_grande(self):
+    def test_la_memoria_con_bom_utf8_se_acepta_como_forma_equivalente(self):
+        self.preparar(b'\xef\xbb\xbf{"version": 1, "vistas": {}}')
+        with Memoria.abrir(self.ruta) as m:
+            self.assertEqual(len(m), 0)
+            m.marcar([nov("a")], CUANDO)
+            m.guardar()
+        self.assertFalse(self.ruta.read_bytes().startswith(b"\xef\xbb\xbf"))  # al guardar se reescribe sin BOM
+        with Memoria.abrir(self.ruta) as m:
+            self.assertIn("a", m)
+
+    def test_archivo_demasiado_grande_no_es_corrupto(self):
         self.sembrar("a")
         original = self.ruta.read_bytes()
         with mock.patch.object(modulo_memoria, "TOPE_ARCHIVO", 10):
-            with self.assertRaises(MemoriaCorrupta):
+            with self.assertRaises(MemoriaDemasiadoGrande) as ctx:
                 Memoria.abrir(self.ruta)
+        self.assertNotIsInstance(ctx.exception, MemoriaCorrupta)
+        self.assertIn("No se tocó", str(ctx.exception))
         self.assertEqual(self.ruta.read_bytes(), original)
         self.assertFalse(self.candado.exists())
+
+    def test_el_tope_de_tamano_es_estrictamente_mayor_que(self):
+        original = self.sembrar("a")
+        with mock.patch.object(modulo_memoria, "TOPE_ARCHIVO", len(original)):  # exacto: se abre
+            with Memoria.abrir(self.ruta) as m:
+                self.assertEqual(len(m), 1)
+        with mock.patch.object(modulo_memoria, "TOPE_ARCHIVO", len(original) - 1):  # un byte menos: no
+            with self.assertRaises(MemoriaDemasiadoGrande):
+                Memoria.abrir(self.ruta)
 
     def test_el_mensaje_de_corrupta_dice_que_no_se_toco(self):
         self.preparar(b"basura")
@@ -370,14 +423,14 @@ class ConcurrenciaTest(Base):
         with Memoria.abrir(self.ruta) as m:  # liberada: ahora sí
             self.assertEqual(len(m), 1)
 
-    def test_un_candado_que_quedo_de_una_corrida_caida_no_se_roba(self):
+    def test_un_candado_ilegible_no_se_roba_y_el_mensaje_dice_que_borrar(self):
         self.ruta.parent.mkdir(parents=True)
-        self.candado.write_text("pid=999999\n")
+        self.candado.write_text("lo escribio otro programa\n")
         with self.assertRaises(MemoriaOcupada) as ctx:
             Memoria.abrir(self.ruta)
         self.assertIn(str(self.candado), str(ctx.exception))
         self.assertTrue(self.candado.exists())
-        self.assertEqual(self.candado.read_text(), "pid=999999\n")
+        self.assertEqual(self.candado.read_text(), "lo escribio otro programa\n")
         self.candado.unlink()  # el usuario hace lo que dice el mensaje
         with Memoria.abrir(self.ruta):
             pass

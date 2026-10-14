@@ -4,7 +4,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
-from radar.lectura import FUENTES, Fuente, leer, por_id
+from radar.lectura import FUENTES, leer, por_id
 from radar.lectura.modelos import MAX_ITEMS
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -160,18 +160,6 @@ class VentanaTest(unittest.TestCase):
         novedades, cobertura = leer([a], utc(2026, 9, 1), utc(2026, 10, 14), fetcher_de({a.url: texto}), ahora=AHORA)
         self.assertEqual(len(novedades), 1)
         self.assertEqual(cobertura["openai"].descartadas, 1)
-
-
-class ConstructorDeFuenteTest(unittest.TestCase):
-    def test_una_pagina_sin_analizador_o_un_feed_con_analizador_no_se_arma(self):
-        with self.assertRaises(ValueError):
-            Fuente("x", "X", "https://x.test/", "pagina")
-        with self.assertRaises(ValueError):
-            Fuente("x", "X", "https://x.test/", "atom", lambda *a: None)
-
-    def test_http_plano_no_se_arma(self):
-        with self.assertRaises(ValueError):
-            Fuente("x", "X", "http://x.test/", "atom")
 
 
 if __name__ == "__main__":

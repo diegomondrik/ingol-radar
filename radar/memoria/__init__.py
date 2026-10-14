@@ -4,8 +4,16 @@ from .memoria import (
     RUTA_POR_DEFECTO,
     Memoria,
     MemoriaCorrupta,
+    MemoriaDemasiadoGrande,
     MemoriaError,
     MemoriaOcupada,
 )
 
-__all__ = ["RUTA_POR_DEFECTO", "Memoria", "MemoriaCorrupta", "MemoriaError", "MemoriaOcupada"]
+__all__ = [
+    "RUTA_POR_DEFECTO",
+    "Memoria",
+    "MemoriaCorrupta",
+    "MemoriaDemasiadoGrande",
+    "MemoriaError",
+    "MemoriaOcupada",
+]
