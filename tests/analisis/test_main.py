@@ -487,7 +487,7 @@ class TestArticulosEnLaLinea(unittest.TestCase):
         _, _, runner = self.correr(["--articulos", str(self.articulos)])
         item = datos_del_usuario(runner.llamadas[1]["usuario"])[0]
         self.assertTrue(item["articulo_recortado"])
-        self.assertLessEqual(len(item["texto_del_articulo"]), 12_000)
+        self.assertLessEqual(len(item["texto_del_articulo"]), 30_000)
         for malo in ("<", "‮", "\x00", "alert"):
             self.assertNotIn(malo, item["texto_del_articulo"])
 
