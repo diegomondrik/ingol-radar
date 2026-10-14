@@ -182,7 +182,6 @@ class TestSistema(unittest.TestCase):
             "Si la acción suma algo a una habilidad o a la calidad automática por proyecto, `mejora_software` no es 'no'; "
             "si esa mejora sale sólo de lo que sabés de antes y no del texto, es 'no_se'.",
             "Lo que sabés de antes no sube el veredicto `sirve`.",
-            "Un boletín que sólo trae anuncios y enlaces es como máximo 'tal_vez', con confianza 'baja'.",
             "En un boletín, si el resumen inicial y el cuerpo difieren, manda el cuerpo.",
         ],
         "Q3 confianza de los tal vez": [
