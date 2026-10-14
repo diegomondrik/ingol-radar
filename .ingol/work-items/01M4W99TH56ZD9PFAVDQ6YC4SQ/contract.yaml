@@ -1,0 +1,12 @@
+schema_version: "1"
+id: 01M4W99TH56ZD9PFAVDQ6YC4SQ
+objective: "Lectura y analisis como rutas sensibles: todo cambio ahi pide la firma del owner"
+lane: controlled
+affected_surfaces:
+  - ".ingol/policies/fast-lane.yaml"
+  - "docs/propuesta.html"
+  - "docs/propuesta.md"
+  - ".ingol/work-items/01M4W99TH56ZD9PFAVDQ6YC4SQ/**"
+acceptance:
+  - id: AC01
+    description: "The change does what the title says and the project's automatic checks pass."

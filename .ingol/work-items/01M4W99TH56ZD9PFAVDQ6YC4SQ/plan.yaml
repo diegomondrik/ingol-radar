@@ -1,0 +1,13 @@
+schema_version: "1"
+work_item: 01M4W99TH56ZD9PFAVDQ6YC4SQ
+status: approved
+next_gate: integrate
+owner: "Carlos Diego Mondrik"
+executor: "Claude (sesion de INGOL)"
+branch: "trabajo-1-rutas-sensibles"
+steps:
+  - implement
+evaluations:
+  - criterion: AC01
+    method: deterministic
+    control: "The project's CI passes on the pull request."
