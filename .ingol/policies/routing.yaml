@@ -1,0 +1,17 @@
+schema_version: "1"
+status: floors-declared
+core_is_model_neutral: required
+selection_order:
+  - cost_class
+  - latency
+adapter_coverage_floor: adapter-declared
+eligibility_floors:
+  fast: baseline
+  standard: standard
+  controlled: controlled
+confidentiality_restrictions: []
+independence_requirements:
+  - different-model-family-for-independent-review
+max_capability_evidence_age: "168h"
+max_availability_probe_age: "1h"
+note: "Runtime model routing floors are declared; no provider or model is named. TP-16 stays inactive until the first reference adapter (WI-008) resolves eligibility from these floors."

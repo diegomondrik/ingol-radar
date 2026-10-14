@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingol.invalid/schemas/event.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "work_item",
+    "timestamp_utc",
+    "actor",
+    "from_state",
+    "to_state",
+    "condition"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "id": { "type": "string", "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$" },
+    "work_item": { "type": "string", "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$" },
+    "timestamp_utc": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+    },
+    "actor": { "type": "string", "minLength": 1 },
+    "from_state": {
+      "type": "string",
+      "enum": ["draft", "approved", "active", "blocked", "ready", "integrated", "abandoned"]
+    },
+    "to_state": {
+      "type": "string",
+      "enum": ["draft", "approved", "active", "blocked", "ready", "integrated", "abandoned"]
+    },
+    "condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "approval_ref": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 },
+        "blocker": { "type": "string", "minLength": 1 },
+        "unblock_condition": { "type": "string", "minLength": 1 },
+        "resolution": { "type": "string", "minLength": 1 },
+        "evidence_ref": { "type": "string", "minLength": 1 },
+        "staleness_cause": { "type": "string", "minLength": 1 },
+        "integration_ref": { "type": "string", "minLength": 1 },
+        "advisory_limitation": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

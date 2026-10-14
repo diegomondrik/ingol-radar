@@ -1,0 +1,8 @@
+schema_version: "1"
+backend: github
+enforcement: advisory
+target_repository: diegomondrik/ingol-radar
+target_visibility: public
+protected_branch: main
+required_check: ingol-bootstrap / bootstrap
+hosting_gate: github-pro-private-protection-available-pending-live-verification

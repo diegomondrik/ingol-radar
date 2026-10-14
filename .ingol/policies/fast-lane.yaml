@@ -1,0 +1,22 @@
+schema_version: "1"
+# Cerrado: ningún cambio es rápido hasta que el dueño del proyecto abra el
+# camino rápido con un cambio crítico (D-215). La única ruta rápida no existe.
+fast_paths:
+  - .ingol/sin-camino-rapido/**
+max_changed_lines: 1
+max_changed_files: 1
+max_added_test_lines: 0
+fast_file_suffixes:
+  - .md
+  - .txt
+# Rutas sensibles: un cambio que las toca es crítico. Son lo que guía al
+# agente o al verificador. El primer trabajo del proyecto suma acá las rutas
+# de su código sensible (las de sus zonas).
+sensitive_paths:
+  - .gitattributes
+  - .claude/**
+  - CLAUDE.md
+  - AGENT_BASE.md
+  - AGENTS.md
+  - .mcp.json
+  - .github/CODEOWNERS

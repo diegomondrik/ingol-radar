@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingol.invalid/schemas/untrusted-content.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "source_kind", "source_locator", "retrieval_reference", "retrieved_utc", "media_type", "content_sha256", "payload_base64", "trust_status"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "id": { "type": "string", "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$" },
+    "source_kind": { "type": "string", "enum": ["tracker", "pull_request", "web", "document", "tool_return"] },
+    "source_locator": { "type": "string", "minLength": 1 },
+    "retrieval_reference": { "type": "string", "minLength": 1 },
+    "retrieved_utc": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$" },
+    "media_type": { "type": "string", "minLength": 1 },
+    "content_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "payload_base64": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9+/]+={0,2}$" },
+    "trust_status": { "type": "string", "const": "untrusted" }
+  }
+}

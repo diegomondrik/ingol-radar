@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingol.invalid/schemas/lease.schema.json",
+  "title": "INGOL exclusive-resource lease",
+  "description": "The document one exclusive-resource lease publishes about itself (WI014-AC07), carrying the seven semantics ARCHITECTURE_BASELINE.md section 11 names: owner, resource, acquisition, expiry, renewal, release and recovery. It is closed by construction — additionalProperties false, nine admitted fields and nothing else — so a priority, a queue position, a retry policy or a nested lock cannot smuggle a coordination mechanism past the schema that section 11 says needs its own architecture decision. This document is NOT a canonical record and never appears in a work tree: it lives only as one blob named lease.json inside a parentless commit that a dedicated Git ref (refs/ingol/leases/<resource>) points at, and it is moved only by compare-and-swap on that ref. Release is therefore the absence of the ref, not a state written here: a released lease has no document at all, which is why no field names a released, free or expired state. Expiry is a declared instant, judged by the reading client's own clock — there is no server clock in this mechanism — so a client whose clock is ahead of its peers can consider a live lease expired. That is a liveness and safety limitation of the mechanism, recorded here rather than hidden: what the compare-and-swap guarantees is that at most one client wins any single transition, not that every client agrees about what time it is.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "resource",
+    "owner",
+    "epoch",
+    "acquired_at",
+    "expires_at",
+    "renewals",
+    "renewed_at"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "resource": {
+      "description": "The exclusive resource this lease covers, and the single ref-name component the lease ref is built from. One path segment only, lower case, so no two resources can collide on a case-insensitive filesystem (a Git ref is a file) and no resource can create a directory/file conflict with another resource's ref. Every further ref-name rule Git enforces but this pattern cannot express — no .. sequence, no .lock suffix, no Windows reserved device name — is enforced in Go, and cross-checked there against `git check-ref-format` itself rather than against a second hand-written list.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9.-]{0,99}$"
+    },
+    "owner": {
+      "description": "The identity of the client that holds this lease. It is an identity, never a credential: it proves nothing and authenticates nobody. Any client with push access to the lease ref can write any owner string here, so this mechanism provides mutual exclusion between cooperating clients, not authorization against a hostile one.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._@:/+-]{0,199}$"
+    },
+    "epoch": {
+      "description": "The fencing token: 1 for a lease acquired on a free resource, and exactly one more than the recovered lease's epoch for one acquired by recovering an expired lease. It never changes on renewal — a renewal is the same holding continuing, while a recovery is a new holding whose predecessor may still believe it holds the resource. A resource that has seen epoch N must therefore refuse work tagged with any epoch below N; nothing in this document can make it do so, which is why the token is published rather than assumed.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "acquired_at": {
+      "description": "UTC instant, whole seconds, at which this holding began, as measured by the acquiring client's clock. Second precision is the whole of it: a sub-second lease could not be expressed here, so it is rejected at acquisition rather than silently rounded.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "expires_at": {
+      "description": "UTC instant, whole seconds, after which any client may recover this lease. Strictly later than renewed_at, and therefore than acquired_at. A reader at exactly this instant does not yet consider the lease expired.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "renewals": {
+      "description": "How many times this holding has been renewed: 0 for a freshly acquired lease. It increments on every renewal so that no renewal can produce a document byte-identical to the one it replaces — an identical document would produce an identical commit, and a compare-and-swap onto the value already there is a no-op that reports success without extending anything.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "renewed_at": {
+      "description": "UTC instant, whole seconds, of the most recent renewal, equal to acquired_at while renewals is 0.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "recovered_from": {
+      "description": "Present only on a lease acquired by recovering an expired one, absent on a lease acquired from a free resource, so that a recovery is legible in the document instead of being inferable only from an epoch above 1. It names what was displaced — owner, epoch and the expiry instant that authorized the takeover — and the enclosing lease's acquired_at must be at or after that expired_at. That ordering is an internal-consistency check, not skew detection: it rejects a document that admits to taking over before expiry, and cannot see a client whose whole clock runs early.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner", "epoch", "expired_at"],
+      "properties": {
+        "owner": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._@:/+-]{0,199}$" },
+        "epoch": { "type": "integer", "minimum": 1 },
+        "expired_at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+        }
+      }
+    }
+  }
+}

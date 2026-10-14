@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingol.invalid/schemas/comparison.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "comparison", "limitations", "differences"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "comparison": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "Identifies this comparison record; matches its file name (WI011-AC07's own naming discipline for protected inputs)."
+    },
+    "limitations": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 },
+      "description": "What this comparison record does not prove, stated by the record itself rather than left for a reader to discover (WI011-AC03). Required and non-empty: every comparison record carries at least the field-path keying limitation, since a record keyed by field path cannot notice that the text inside an already-classified field was reworded."
+    },
+    "differences": {
+      "type": "object",
+      "description": "Every field of the protected adapter schema on which the protected adapter declarations do not all agree, keyed by its dotted field path (WI011-AC03: keyed by field path, not by the differing values themselves, so a reworded rationale does not reopen an already-classified field). The evaluator recomputes this set at check time: a real difference missing here fails as unclassified, and a key here naming a field the declarations no longer disagree on fails as stale.",
+      "additionalProperties": { "$ref": "#/$defs/differenceEntry" }
+    }
+  },
+  "$defs": {
+    "differenceEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["classification", "rationale"],
+      "properties": {
+        "classification": {
+          "type": "string",
+          "enum": ["genuine_defect", "expected_difference"],
+          "description": "genuine_defect: the difference passes all three clauses of WI011-AC01's rule, so it is a Core abstraction weakness. expected_difference: the difference fails at least one clause, so Core is not corrected for it."
+        },
+        "clause": {
+          "type": "string",
+          "enum": ["fails_clause_a", "fails_clause_b", "fails_clause_c"],
+          "description": "Required, and only meaningful, for expected_difference: names the WI011-AC01 clause this difference fails. fails_clause_a: the difference is in the fact the two adapters have, not in how Core represents it — changing Core's representation would not make it disappear. fails_clause_b: no Core control is weaker or unmeasurable because of this difference — every control already handles it correctly. fails_clause_c: correcting it would need a provider or model name in Core, or new evidence from a live adapter session."
+        },
+        "correction": {
+          "description": "Required, and only meaningful, for genuine_defect: whether this work item corrected it or is deferring the correction.",
+          "$ref": "#/$defs/correction"
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why this classification and, if applicable, this clause — citing the repository fact that decided it, not asserted from taste."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["classification"],
+            "properties": { "classification": { "const": "expected_difference" } }
+          },
+          "then": { "required": ["clause"] }
+        },
+        {
+          "if": {
+            "required": ["classification"],
+            "properties": { "classification": { "const": "genuine_defect" } }
+          },
+          "then": { "required": ["correction"] }
+        }
+      ]
+    },
+    "correction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["corrected", "deferred"],
+          "description": "deferred: the objective's own restraint clause — the correction would need a third adapter, MA-01 delegation machinery, an untrusted-external-content boundary, a route or routing-policy change, or new evidence from a live adapter session, none of which this work item builds. A deferred defect is never reclassified as expected_difference to avoid the work."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Required when status is deferred: names which of those the correction would need."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["status"],
+            "properties": { "status": { "const": "deferred" } }
+          },
+          "then": { "required": ["reason"] }
+        }
+      ]
+    }
+  }
+}

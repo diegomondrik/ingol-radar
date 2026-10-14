@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingol.invalid/schemas/team.schema.json",
+  "title": "INGOL work-item team record",
+  "description": "The minimal work graph one work item declares about itself (WI014-AC02): which other work items must be integrated before this one. It is closed by construction — schema_version, work_item and depends_on and nothing else — so a weight, a label, a kind, a rank or a lane cannot smuggle scheduling or visualization semantics past the schema. Integration-queue state and order (WI014-AC03) are never written here: they are derived into .ingol/generated/ by folding every work item's team.yaml, plan.yaml and lifecycle state, so no work item can assert its own queue position. depends_on is required and may be the empty sequence: a work item with no dependencies says so explicitly rather than by omission, which is what keeps an absent file distinguishable from an empty graph.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "work_item",
+    "depends_on"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "work_item": { "type": "string", "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$" },
+    "depends_on": {
+      "description": "Zero or more work-item ULIDs that must fold to integrated before this work item may leave the blocked state. Entries are distinct (uniqueItems) and each is a Crockford ULID of the same shape a work-item directory carries. A work item naming itself here is rejected in Go, not by this schema: JSON Schema 2020-12 cannot compare one instance value against a sibling, so expressing that rule here would require a construct that only appears to enforce it.",
+      "type": "array",
+      "minItems": 0,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$" }
+    }
+  }
+}

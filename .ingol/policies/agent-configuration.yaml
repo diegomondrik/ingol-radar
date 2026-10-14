@@ -1,0 +1,109 @@
+schema_version: "1"
+# CAP-04/CAP-05 (WI015-AC07): the agent-configuration surfaces this
+# repository's protected checks walk, declared per adapter family so no
+# control built from this policy can see one vendor's directory only
+# (INV-01, WI015-AC15). Every path CAP-04's omission check and CAP-05's
+# allowlist check walk comes from this file, never hard-coded in Go.
+#
+# governed_root is a directory BASENAME, not a path: every directory
+# anywhere in the candidate tree named exactly this (findDirectoriesNamed,
+# agent_configuration.go) is one governed-root instance, so a project with
+# packages/foo/.claude/ is covered the same way its root .claude/ is
+# (WI015-AC15's neutral, policy-driven reach applied to nesting depth as
+# well as to adapter family). Empty means the family has no directory
+# convention in this repository today — only its anywhere-form surfaces
+# (below) are recognized, and nothing else is scanned for that family.
+#
+# Each surface category lists declared locations. A location with no "**/"
+# prefix is RELATIVE to every discovered governed_root instance in turn
+# (e.g. "agents/**" means "<instance>/agents/**" for every instance found);
+# a location prefixed "**/" is ANYWHERE — matched against the whole
+# candidate tree directly, independent of any instance — which is how
+# CLAUDE.md and AGENTS.md actually resolve for both reference adapters: a
+# project-root or per-directory file, not one confined under .claude/.
+#
+# The three CAP-05 gaps this contract names (WI015-AC08) — MCP/connector
+# configuration, secrets, persistence — declare no location for either
+# family on purpose: nothing is claimed audited that is not, and a file
+# introduced under a governed_root instance that would belong to one of
+# those categories still fails the allowlist because no location covers it.
+#
+# Narrowing discipline (checkCandidateAgentConfigurationPolicy,
+# agent_configuration.go): the set of declared families and, within each
+# family, the set of declared surface categories are structurally fixed — a
+# candidate can neither add nor remove one (INV-01/WI015-AC15 requires both
+# reference families stay declared; adding a third is a deliberate policy
+# entry, not a routine candidate). Within a category, a candidate may only
+# remove a location, never add one — the same "protected state may only
+# shrink" direction WI010-AC02 already gives a capability declaration's own
+# granted lists — and the same for governed_definition_locations.
+# tool_grant_readability ("machine-readable" or "not-applicable") is the one
+# field that may only rise from not-applicable to machine-readable, because
+# it states a fact about the adapter rather than granting a permission;
+# growing disclosure is never the loosening this predicate exists to catch.
+# It is a string, not a YAML boolean, for the same reason every other
+# protected file in this repository avoids bare true/false: an unquoted
+# true/false/yes/no/on/off is rejected outright as an ambiguous plain
+# scalar by decodeRestrictedYAMLRaw (yaml.go), so this repository states
+# such facts as named strings instead. governed_root is held to exact
+# equality: changing which basename a family's configuration lives under is
+# a structural decision, not a narrowing one.
+#
+# required_deny and required_ask (WI015-AC16) are the opposite direction: a
+# candidate may only ADD an entry, never remove one — they are the floor
+# every permission envelope this family owns must meet, checked
+# unconditionally so even a brand-new envelope has a real baseline rather
+# than none (the bootstrapping gap a narrowing-only predicate alone would
+# leave open). Both are empty for both families today: this file does not
+# invent real permission policy for this repository, only the mechanism
+# that would enforce one the day a family declares it.
+families:
+  - family: claude
+    governed_root: ".claude"
+    tool_grant_readability: "machine-readable"
+    governed_definition_locations:
+      - "agents/**"
+    required_deny: []
+    required_ask: []
+    surfaces:
+      - category: prompts
+        patterns:
+          - "**/CLAUDE.md"
+          - "agents/**"
+          - "skills/**"
+          - "commands/**"
+      - category: hooks
+        patterns: []
+      - category: mcp-or-connectors
+        patterns: []
+      - category: tool-grants
+        patterns: []
+      - category: permissions
+        patterns:
+          - "settings.json"
+      - category: secrets
+        patterns: []
+      - category: persistence
+        patterns: []
+  - family: codex
+    governed_root: ""
+    tool_grant_readability: "not-applicable"
+    governed_definition_locations: []
+    required_deny: []
+    required_ask: []
+    surfaces:
+      - category: prompts
+        patterns:
+          - "**/AGENTS.md"
+      - category: hooks
+        patterns: []
+      - category: mcp-or-connectors
+        patterns: []
+      - category: tool-grants
+        patterns: []
+      - category: permissions
+        patterns: []
+      - category: secrets
+        patterns: []
+      - category: persistence
+        patterns: []

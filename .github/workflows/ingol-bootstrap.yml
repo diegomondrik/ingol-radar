@@ -1,0 +1,60 @@
+name: ingol-bootstrap
+
+on:
+  pull_request_target:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - edited
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ingol-bootstrap-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  bootstrap:
+    name: bootstrap
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the INGOL installation at its pinned version
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: diegomondrik/ingol
+          ref: 5c9d1a5476b03bf62766743e1e6ae8fd14e72073
+          token: ${{ secrets.INGOL_TRUSTED_READ_TOKEN }}
+          path: installation
+          persist-credentials: false
+
+      - name: Check out the protected baseline
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: ${{ github.event.pull_request.base.repo.full_name }}
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: baseline
+          persist-credentials: false
+
+      - name: Check out the candidate as untrusted data
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: candidate
+          persist-credentials: false
+
+      - name: Set up the installation's pinned Go toolchain
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version-file: installation/go.mod
+          cache-dependency-path: installation/go.sum
+
+      - name: Validate the candidate without executing it
+        shell: bash
+        working-directory: installation
+        run: go run ./cmd/bootstrap-check --installation-root . --baseline-root ../baseline --candidate-root ../candidate --event-file "$GITHUB_EVENT_PATH"

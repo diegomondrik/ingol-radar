@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingol.invalid/schemas/delegation.schema.json",
+  "title": "INGOL scoped-worker delegation record",
+  "description": "The only document that grants scope to a worker (WI018-AC02), and therefore the one artifact of this floor a hostile edit would aim at. It is closed by construction — eleven admitted fields and nothing else — so a priority, a queue position, a retry policy, a nested delegation, a renewal or an escalation cannot be smuggled past the schema into a coordination mechanism nobody approved; MA-02 says the supervisor may delegate only independently divisible scopes within protected budgets, and every one of those words is a field here or a rule in Go, not an intention. What this document is NOT: it is not a lease (nothing here is exclusive by compare-and-swap; two delegations are to be kept apart by disjoint writable_paths, checked when each is issued by the mechanism a later delivery builds), it is not a handoff (that record moves a whole work item between owners; this one grants part of one work item inside a single owner's custody), and it is not an authorization to write protected policy — a delegation naming .ingol/policies or .ingol/schemas is refused regardless of who issues it, which belongs in Go because JSON Schema cannot express 'no path may lie under these two', and which is NOT yet built: this delivery carries the shape of the record, and every rule named here as living in Go arrives with the delivery that first issues and reads one. Four further rules belong in Go for reasons the schema cannot overcome, none of them built by this delivery: that scope names a scope of this work item's decomposition; that writable_paths are disjoint from those of every other live delegation of the same work item; that budget.amount does not exceed the ceiling declared by the named capability, whose role must be scoped-worker; and that no path contains a .. segment (RE2 has no lookahead). The schema's job is to make those rules checkable against a fixed shape, not to pretend it enforces them.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "work_item",
+    "scope",
+    "supervisor",
+    "worker",
+    "capability",
+    "writable_paths",
+    "base_state",
+    "budget",
+    "issued_at",
+    "expires_at"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "id": {
+      "description": "This delegation's own identifier, so that a refusal, an integration or a fail-closed case can name the exact grant it is talking about rather than a pair of identities that may repeat.",
+      "type": "string",
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "work_item": {
+      "description": "The work item whose scope is being delegated. Delegation never crosses work items: the unit of governance in this repository is the work item, and a grant that spanned two would have no contract to be judged against.",
+      "type": "string",
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "scope": {
+      "description": "The identifier of the scope, in this work item's decomposition, that this record grants. A delegation whose scope names nothing in that decomposition must be refused in Go, which this delivery does not yet build: the planner proposes, the supervisor grants, and a grant with no proposal behind it is precisely the unauthorized delegation MA-07 asks to be caught.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+    },
+    "supervisor": {
+      "description": "The identity that issued this grant. An identity, never a credential: any process able to write this file can write any string here, so this mechanism coordinates cooperating agents and does not authenticate against a hostile one. That limitation is recorded rather than hidden, exactly as lease.schema.json records it for its own owner field.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._@:/+-]{0,199}$"
+    },
+    "worker": {
+      "description": "The identity this grant is issued to, and the only identity permitted to act under it. It is also what makes reviewer non-independence checkable: a review whose reviewer identity equals this one, or the supervisor's, is to be refused -- by the mechanism a later delivery builds, not by this document.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._@:/+-]{0,199}$"
+    },
+    "capability": {
+      "description": "The name of the protected capability declaration this worker fills, matching the capability field of capability.schema.json. Its role must be scoped-worker and its delegation_ceiling is what bounds the budget below — which is why the ceiling lives on the protected declaration and the grant lives here: a supervisor can decide how much of a ceiling to grant, and cannot decide the ceiling.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "writable_paths": {
+      "description": "The paths this worker may write, and the whole of them: anything outside is to be refused, and a write to another delegation's paths or to protected policy refused even inside the same work item. Disjointness against every other live delegation of this work item is what 'independently divisible' means in MA-02, and it is to be checked when this record is issued rather than when a conflict is discovered. Every refusal named in this sentence belongs to the delivery that first issues and reads one of these records; this one carries the shape. Relative paths with forward slashes, optionally ending in /** for a subtree; absolute paths, backslashes and bare wildcards cannot be expressed, and a .. segment must be rejected in Go, which this delivery does not yet build.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_.-]+)*(/\\*\\*)?$"
+      }
+    },
+    "base_state": {
+      "description": "The state of the work item's tree at the instant this scope was cut, and the sole basis on which stale output is to be judged: work returned against a base_state the integration has moved past must be rejected rather than merged, by the mechanism a later delivery builds. It carries the same two-part shape handoff.schema.json already uses for the same honest reason — a content fingerprint always exists, while a revision identifier exists only where the tree is under a revision control system that has one, and a governed project produced by ingol init may have none. Recording 'absent' is therefore a fact about the project, not a degraded mode.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fingerprint", "revision"],
+      "properties": {
+        "fingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "revision": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["disposition"],
+          "properties": {
+            "disposition": { "type": "string", "enum": ["derived", "absent"] },
+            "value": { "type": "string", "pattern": "^[a-f0-9]{40}$" }
+          },
+          "if": {
+            "required": ["disposition"],
+            "properties": { "disposition": { "enum": ["derived"] } }
+          },
+          "then": { "required": ["value"] }
+        }
+      }
+    },
+    "budget": {
+      "description": "What this grant spends, and the ceiling it is to be checked against is the one declared by the named capability — never a number this document argues for. The unit is a closed vocabulary of one value, the same single-value enumeration WI016-AC06 gave install_profile: admitting a second unit requires changing this protected schema and a decision to go with it, instead of a new unit appearing in a record and being honoured because it parsed. worker-invocations is chosen because it is what a deterministic control plane can actually count without believing a report from the thing it is metering. What this budget therefore does NOT bound is written here rather than discovered later: not tokens, not wall-clock time, not money, and not anything consumed inside a single invocation.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unit", "amount"],
+      "properties": {
+        "unit": { "type": "string", "enum": ["worker-invocations"] },
+        "amount": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "issued_at": {
+      "description": "UTC instant, whole seconds, at which the supervisor issued this grant, as measured by the issuing client's clock.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "expires_at": {
+      "description": "UTC instant, whole seconds, after which this grant no longer authorizes anything. Strictly later than issued_at, which belongs in Go and is not built by this delivery. There is no renewal field and no extension: a scope that needs more time gets a new delegation from the supervisor, which leaves a record, rather than a quiet edit to this one. As with the lease, expiry is judged by the reading client's own clock — there is no server clock in this mechanism — so clients whose clocks disagree can disagree about whether a grant is live. That is a limitation of the mechanism, recorded here rather than hidden.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    }
+  }
+}

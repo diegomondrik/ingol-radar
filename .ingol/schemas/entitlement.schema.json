@@ -1,0 +1,200 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingol.invalid/schemas/entitlement.schema.json",
+  "title": "INGOL entitlement decision",
+  "description": "WI-006 (WI006-AC01, WI006-AC12). The root object is the entitlement decision as ARCHITECTURE_BASELINE.md:591 defines it and nothing more: a signed decision-data structure carrying entitlement identity, opaque scope, enabled capabilities, validity and balance. It never transports policy, executable configuration or code, and the object is closed to unknown properties so that sentence is a check rather than a promise. Validating against this schema is not trust: signature verification (WI006-AC02) and scope binding (WI006-AC04) are separate gates, and schema validity alone never produces a valid result. The two structures the mandatory licensing exchange and the product feedback channel use live in $defs as closed types of their own, and neither may carry the other's fields, which is INV-16's remain-separated clause expressed as schemas rather than as a paragraph. This file IS in protectedInputsFrozenWholeFile (internal/bootstrap/wi001.go), frozen byte for byte -- D-116, 2026-09-09, amending the sentence that used to stand here. Three rounds of independent review each found a candidate schema that this file's earlier migration-tolerant predicate (checkCandidateSchemaEnvelope, the one project.schema.json and route.schema.json still use) still accepted, the last proven end-to-end against a real hostile document. The owner chose to freeze this one file rather than narrow that predicate a fourth time: any future change to the shape of a license is a change he validates himself. checkCandidateEntitlementSchema (internal/bootstrap/entitlement.go) now only holds the decision and the feedback record apart (WI006-AC12) -- the freeze makes envelope checking here unreachable and unnecessary.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "entitlement_identity",
+    "opaque_scope",
+    "enabled_capabilities",
+    "validity",
+    "balance",
+    "signature"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "entitlement_identity": { "$ref": "#/$defs/entitlement_identity" },
+    "opaque_scope": { "$ref": "#/$defs/opaque_scope" },
+    "enabled_capabilities": {
+      "description": "Recorded, not enforced: nothing in this repository yet consumes this list, which WI006-AC15 requires to be a named gap rather than an unstated one.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "validity": {
+      "description": "The time dimension. The evaluator compares these against an injected clock (WI006-AC03), never against the machine clock directly.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["not_before_utc", "not_after_utc"],
+      "properties": {
+        "not_before_utc": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+        },
+        "not_after_utc": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+        }
+      }
+    },
+    "balance": {
+      "description": "The consumption dimension, carried by the decision so the exhausted result is derived from it and never from a locally maintained counter (WI006-AC03). No credit amount, tier threshold or price is decided here: D-008 defers all three.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["credits_remaining"],
+      "properties": {
+        "credits_remaining": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "revocation": {
+      "description": "Optional, and the one property beyond the five canon names in the sentence above. It is here because the revoked result of WI006-AC03 has to be derivable from the decision itself, and because canon fixes exactly these three fields for it: revocation 'records reason, date and scope' (ARCHITECTURE_BASELINE.md:606). No revocation transport, service or reconnection flow exists in this work item; the field is the shape a signed withdrawal takes, not a mechanism for delivering one.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason", "revoked_utc", "scope"],
+      "properties": {
+        "reason": { "type": "string", "minLength": 1 },
+        "revoked_utc": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+        },
+        "scope": { "$ref": "#/$defs/opaque_scope" }
+      }
+    },
+    "signature": {
+      "description": "What makes this decision data signed rather than authored. value_base64 deliberately carries no minLength: an empty signature is one of the four adversarial scenarios WI006-AC02 names, and it must fail closed in the verifier — where the failure is about verification — rather than be turned away here as a malformed document.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "value_base64"],
+      "properties": {
+        "algorithm": { "type": "string", "const": "ed25519" },
+        "value_base64": { "type": "string" }
+      }
+    }
+  },
+  "$defs": {
+    "entitlement_identity": {
+      "description": "Entitlement identity: which entitlement this is and who issued it. The issuer is checked against the trust anchor in .ingol/policies/entitlement.yaml, never against a name carried in the document alone.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entitlement_id", "issuer"],
+      "properties": {
+        "entitlement_id": { "type": "string", "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$" },
+        "issuer": { "type": "string", "minLength": 1 }
+      }
+    },
+    "opaque_scope": {
+      "description": "Project-scoped binding through a locally generated opaque identifier that contains and reveals no project name, no repository path and no customer identity (ARCHITECTURE_BASELINE.md:591, D-008 clause 7). The pattern admits 64 lowercase hex characters and nothing else, so a value that carried a name or a path would not validate. Only project scope is modeled: organization, user, installation, concurrency and team are named as unmodeled dimensions (WI006-AC15) rather than half-represented here.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project_binding"],
+      "properties": {
+        "project_binding": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "mandatory_licensing_payload": {
+      "description": "The mandatory licensing exchange, limited to the exact list D-008 clause 7 fixes and ARCHITECTURE_BASELINE.md:589 repeats: entitlement identity, opaque scope and capabilities, consumption, version and integrity data. The object is closed, so the fixtures canon forbids by name — project code, a prompt, a filename or path, work-item or acceptance-criterion content, an evidence payload, client business data — are each rejected and each named by the rejection. Approving this contract (D-114) is the owner authority TRANSITION_PROTOCOL.md:642 requires for introducing this shape. Nothing in this work item transmits it anywhere: there is no transport, client, endpoint or network call.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "entitlement_identity",
+        "opaque_scope",
+        "capabilities",
+        "consumption",
+        "version",
+        "integrity"
+      ],
+      "properties": {
+        "schema_version": { "type": "string", "const": "1" },
+        "entitlement_identity": { "$ref": "#/$defs/entitlement_identity" },
+        "opaque_scope": { "$ref": "#/$defs/opaque_scope" },
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "consumption": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["credits_consumed", "credits_remaining"],
+          "properties": {
+            "credits_consumed": { "type": "integer", "minimum": 0 },
+            "credits_remaining": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "version": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["product_version", "decision_schema_version"],
+          "properties": {
+            "product_version": { "type": "string", "minLength": 1 },
+            "decision_schema_version": { "type": "string", "minLength": 1 }
+          }
+        },
+        "integrity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["payload_digest_sha256"],
+          "properties": {
+            "payload_digest_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+          }
+        }
+      }
+    },
+    "entitlement_exchange_request": {
+      "description": "The client half of the three online exchanges canon requires -- new-project activation, time renewal and credit replenishment (ARCHITECTURE_BASELINE.md:589, TRANSITION_PROTOCOL.md:761) -- expressed as a shape and nothing else. WI006-AC14: no transport, client, endpoint, authentication or network call is built or invoked anywhere in this repository, and no request assembled from this type is sent anywhere; that absence is verified over the import graph (internal/bootstrap/entitlement_network_absence_test.go), not promised by this sentence. The object is closed and carries exactly three things: the file's version, which of the three exchanges this is as a closed enumeration, and the mandatory licensing payload itself. It adds no field to that payload, so what a request would carry is still exactly the list D-008 clause 7 fixes, and a request cannot become a second place where content canon forbids arrives. The three exchanges are distinguished by the enumeration and by nothing else, deliberately: the things that would distinguish them further -- credit amounts, tier thresholds, prices, renewal terms -- are the ones ARCHITECTURE_BASELINE.md:587 defers to a later commercial decision and WI006-AC15 records as unmodeled, so inventing them here would be this work item deciding a commercial question the contract excludes. There is no matching response definition, and that is the point rather than an omission: canon says an entitlement response is exclusively a signed decision-data structure (ARCHITECTURE_BASELINE.md:591), so the response shape for all three exchanges is the root object of this file, and a second definition of it would be the place where the two could drift apart.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "exchange", "payload"],
+      "properties": {
+        "schema_version": { "type": "string", "const": "1" },
+        "exchange": {
+          "type": "string",
+          "enum": ["project-activation", "time-renewal", "credit-refill"]
+        },
+        "payload": { "$ref": "#/$defs/mandatory_licensing_payload" }
+      }
+    },
+    "feedback_consent_record": {
+      "description": "The product feedback channel, a separate type from the entitlement decision above and sharing no field with it but schema_version. The four levels are the closed enumeration ARCHITECTURE_BASELINE.md:595-604 fixes; the effective level when no record exists is none, which is a rule the consent code enforces (WI006-AC10) rather than a default a document can declare. diagnostic and support-bundle require the authorization object, because canon says both 'always require additional authorization'. Entitlement issuance or renewal can never be conditioned on a level above none, which is why nothing here refers to an entitlement at all.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "level", "recorded_utc"],
+      "properties": {
+        "schema_version": { "type": "string", "const": "1" },
+        "level": {
+          "type": "string",
+          "enum": ["none", "operational", "diagnostic", "support-bundle"]
+        },
+        "recorded_utc": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+        },
+        "authorization": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["authorized_by", "authorized_utc"],
+          "properties": {
+            "authorized_by": { "type": "string", "minLength": 1 },
+            "authorized_utc": {
+              "type": "string",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "level": { "enum": ["diagnostic", "support-bundle"] } },
+            "required": ["level"]
+          },
+          "then": { "required": ["authorization"] }
+        }
+      ]
+    }
+  }
+}

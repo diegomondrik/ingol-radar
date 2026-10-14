@@ -1,0 +1,46 @@
+schema_version: "1"
+# WI016-AC02. The exact inventory a correct build/setup is supposed to
+# produce for this installation: the ingol binary and the canonical
+# .ingol/schemas and .ingol/policies files WI016-AC01's initializer copies
+# into a new project. `ingol doctor` verifies every entry below is present,
+# non-empty and, for canonical_files, byte-identical to this installation's
+# own embedded copy -- reporting the exact file name on failure rather than
+# a generic "something is missing" (FND-02).
+#
+# Bound by a narrowing predicate (WI016-AC03), the same shape WI-007 gave
+# routing.yaml's confidentiality_restrictions and independence_requirements
+# lists: a candidate may add a declared canonical file, and may never remove
+# one protected state already declares. binary.name is held to exact
+# equality under the same predicate -- renaming the product binary is a
+# decision for the owner, not something a candidate narrows on its own.
+binary:
+  name: ingol
+  build_command: "go build ./cmd/ingol"
+canonical_files:
+  - .ingol/policies/agent-configuration.yaml
+  - .ingol/policies/approvals.yaml
+  - .ingol/policies/entitlement.yaml
+  - .ingol/policies/lanes.yaml
+  - .ingol/policies/routing.yaml
+  - .ingol/policies/task-shapes.yaml
+  - .ingol/policies/toolchain-manifest.yaml
+  - .ingol/schemas/adapter.schema.json
+  - .ingol/schemas/approval.schema.json
+  - .ingol/schemas/capability.schema.json
+  - .ingol/schemas/comparison.schema.json
+  - .ingol/schemas/content-promotion.schema.json
+  - .ingol/schemas/contract.schema.json
+  - .ingol/schemas/decision.schema.json
+  - .ingol/schemas/decomposition.schema.json
+  - .ingol/schemas/delegation.schema.json
+  - .ingol/schemas/entitlement.schema.json
+  - .ingol/schemas/event.schema.json
+  - .ingol/schemas/evidence.schema.json
+  - .ingol/schemas/handoff.schema.json
+  - .ingol/schemas/lease.schema.json
+  - .ingol/schemas/plan.schema.json
+  - .ingol/schemas/project.schema.json
+  - .ingol/schemas/route.schema.json
+  - .ingol/schemas/snapshot.schema.json
+  - .ingol/schemas/team.schema.json
+  - .ingol/schemas/untrusted-content.schema.json

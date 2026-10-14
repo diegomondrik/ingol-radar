@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingol.invalid/schemas/content-promotion.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "envelope_id", "content_sha256", "authorizing_actor", "authority_ref", "assertions", "target_use"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "id": { "type": "string", "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$" },
+    "envelope_id": { "type": "string", "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$" },
+    "content_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "authorizing_actor": { "type": "string", "minLength": 1 },
+    "authority_ref": { "type": "string", "minLength": 1 },
+    "assertions": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "target_use": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["work_item"],
+      "properties": {
+        "work_item": { "type": "string", "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$" },
+        "decision_id": { "type": "string", "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$" },
+        "criterion": { "type": "string", "pattern": "^[A-Z0-9-]+$" }
+      },
+      "oneOf": [
+        { "required": ["decision_id"], "not": { "required": ["criterion"] } },
+        { "required": ["criterion"], "not": { "required": ["decision_id"] } }
+      ]
+    }
+  }
+}

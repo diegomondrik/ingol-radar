@@ -1,0 +1,92 @@
+schema_version: "1"
+# WI-006 (WI006-AC17): the neutral entitlement boundary reads every fact it
+# enforces from this file, never from Go — the same discipline WI-007 gave
+# routing.yaml, WI-010 gave capability declarations and WI-015 gave
+# agent-configuration.yaml. An unguarded file under a protected prefix is
+# protection by directory name only, so this one has a narrowing predicate of
+# its own (checkCandidateEntitlementPolicy, entitlement.go): a candidate may
+# tighten it and never loosen it.
+#
+# It is NOT in protectedInputsFrozenWholeFile (wi001.go) and must not be added
+# to it: a byte freeze would ban the legitimate evolution this file needs —
+# a real trust anchor, a longer non-gateable list, a stricter default — which
+# is the reasoning WI-004 and WI-007 already recorded for project.yaml and
+# routing.yaml. What bounds it is the predicate, not the bytes.
+
+# trust_anchor is the only issuer whose signature over an entitlement decision
+# this repository will ever verify (WI006-AC02). It is held to exact equality
+# by the predicate, because there is no such thing as a stricter trust anchor:
+# a candidate that swaps it for its own key is introducing an issuer, not
+# narrowing one.
+#
+# production_status is the explicit non-production label WI006-AC02 requires,
+# and it states a fact this repository can prove rather than a hope: the key
+# below is 32 declared placeholder bytes with NO KNOWN PRIVATE COUNTERPART.
+# Nobody can sign a decision that verifies against it — deliberately. D-008
+# clause 6 keeps signing keys out of repositories, so the tests generate an
+# ephemeral Ed25519 keypair, install its public key into their own temporary
+# protected tree, sign in process and discard the private key when the test
+# ends; nothing is stored between runs.
+#
+# The consequence is deliberate and is stated here rather than worked around:
+# this repository's own steady state is the `indeterminate` entitlement
+# result, permanently. That is the honest state — this repository holds no
+# entitlement — and it makes the repository its own standing test of INV-16,
+# because every one of the five non-gateable operations below runs its entire
+# life under a non-valid entitlement.
+trust_anchor:
+  issuer: ingol-placeholder-issuer
+  public_key_ed25519_base64: "SU5HT0wtUExBQ0VIT0xERVItTk8tUFJJVkFURS1LRVk="
+  production_status: not-for-production
+  note: "Placeholder anchor with no known private counterpart: no decision can verify here, so this repository resolves to indeterminate by construction."
+
+# The two operation lists are what makes INV-16 a control that can fail
+# instead of a promise enforced by whoever reads the code that day
+# (WI006-AC06). Together they are the closed universe of operations an
+# entitlement result may be asked about: an operation named in neither is a
+# distinguishable error, not a silent pass.
+#
+# gateable_operations may only SHRINK in a candidate. Each entry traces to
+# ARCHITECTURE_BASELINE.md section 17: "requires connection for new-project
+# activation, time renewal and credit replenishment" and "defining/activating
+# a new project instance or adopting an existing project consumes a
+# comparatively large credit amount; subsequent work items consume a small
+# number of credits" (:587-589), and "may prevent initiation of new licensed
+# authoring or managed operations according to the declared enforcement
+# level" (:606). Nothing in this repository consumes this list yet — that is a
+# named gap (WI006-AC15), not an unstated one.
+gateable_operations:
+  - new-project-activation
+  - existing-project-adoption
+  - licensed-authoring
+  - managed-operation
+
+# non_gateable_operations may only GROW in a candidate, and the five canon
+# fixes are required to be present by the policy's own shape check, not only
+# by comparison against protected state — so the control still fails if the
+# protected copy itself is edited. ARCHITECTURE_BASELINE.md:198 and :606 and
+# TRANSITION_PROTOCOL.md:761 state the same five in product language: no
+# entitlement result "may prevent the customer from reading, validating,
+# recovering or exporting existing customer-owned project state or inspecting
+# the entitlement decision itself".
+non_gateable_operations:
+  - read
+  - validate
+  - recover
+  - export
+  - entitlement-status
+
+# feedback_consent_default is the effective product-feedback level when no
+# consent is recorded (WI006-AC10). Canon fixes it: "if no recorded consent
+# exists, the effective level is `none`" (ARCHITECTURE_BASELINE.md:602), and
+# "entitlement issuance or renewal cannot be conditioned on selecting a
+# feedback level above `none`" (:600). Approving this contract (D-114) is the
+# owner authority TRANSITION_PROTOCOL.md:642 requires for introducing this
+# default, and it authorizes the default only — no collector, no client, no
+# transmission of any kind exists or is authorized here.
+#
+# The predicate lets a candidate lower this level and never raise it. `none`
+# is already the floor, so today every raise is rejected; the rule is written
+# as a rank rather than as equality because the direction is what matters and
+# a future default above `none` would still have to be able to fall back.
+feedback_consent_default: "none"

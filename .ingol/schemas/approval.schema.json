@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingol.invalid/schemas/approval.schema.json",
+  "title": "INGOL approval record",
+  "description": "One approval of one work item's contract by one authority (WI020-AC01). It exists because .ingol/policies/approvals.yaml has, since WI-001, declared owner_approval, independent_review and checker_workflow_review required for the Controlled lane while no line of code read those three fields: a protected file that governed nothing, which is the shape CLAUDE.md rule 5 names as evidence theatre. This document is what turns an approval from a sentence in a chat log into a record bound to the exact bytes of the contract that was approved. Transition Protocol section 5.3 fixes that binding and this schema only makes it checkable: 'The approved contract identity is a cryptographic digest of its canonical serialization. A manually maintained revision counter may aid display but cannot be the approval identity.' The prohibition is enforced by construction rather than restated: additionalProperties is false and contract_digest is required, so a record carrying a revision counter in place of a digest cannot be expressed at all. What this document is NOT, stated so it is not mistaken for more than it is: it is not a credential and it authenticates nobody -- approver is an identity string, and any process able to write this file can write any name into it, the same limitation lease.schema.json records for its owner and delegation.schema.json for its supervisor, and closing it needs credentialed identities, which D-134 placed in a v2 without date. It is not a lock: it grants no exclusivity and reserves nothing. It is not a review report: a review's findings live in its own evidence, and this record says only that an authority approved, by name, at an instant, against a digest. And it carries no covered_assumptions list, deliberately: contracts in this repository have no assumptions field with stable identifiers to point at -- contract.schema.json declares six properties and is frozen whole-file in protectedInputsFrozenWholeFile, which prices such a field at three pull requests -- so a list here would name nothing that exists. What is covered instead is stated honestly: assumptions are written in contract prose, inside the objective the digest covers byte for byte, so assumption drift is caught as contract drift and assumption drift without contract drift is impossible by construction. The absent half is the ability to approve some assumptions and not others. Two rules belong in Go rather than here, because JSON Schema cannot reach the facts they need, and neither is built by the delivery that introduces this shape: that an approval's contract_digest matches the digest recomputed from the contract actually present in the tree (drift), and that approver is not the executor of the work item's own plan for the two authorities the transition protocol's executor clause forbids self-granting. Stating them here is the contract this schema will be held to, not behaviour this file performs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "work_item",
+    "authority",
+    "approver",
+    "contract_digest",
+    "decision_ref",
+    "approved_utc"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "id": {
+      "description": "This approval's own identifier, so a failure, an event or a later supersession can name the exact record it is talking about rather than an authority-and-work-item pair that repeats every time a contract is re-approved.",
+      "type": "string",
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "work_item": {
+      "description": "The work item whose contract this record approves. An approval never spans work items: the unit of governance in this repository is the work item, and an approval covering two would have no single contract to bind a digest to.",
+      "type": "string",
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "authority": {
+      "description": "Which of the approvals .ingol/policies/approvals.yaml can require this record satisfies. The enumeration is closed and holds exactly the three names that protected policy already uses, plus security_review, which no policy file names: the checker itself requires it from the project's level when the protected level file is at schema_version 2 (WI-048, D-237), because approvals.yaml is frozen byte for byte. A record cannot express an authority the checker does not recognize, and a candidate cannot invent a fifth kind of approval that nothing asks for. The policy says which of these a lane requires; this record never argues for its own necessity, and the predicate that reads both takes the requirement from the trusted checkout, never from the candidate.",
+      "type": "string",
+      "enum": ["owner_approval", "independent_review", "checker_workflow_review", "security_review"]
+    },
+    "approver": {
+      "description": "The identity that granted this approval. An identity, never a credential: it proves nothing and authenticates nobody, exactly as delegation.schema.json's supervisor and lease.schema.json's owner already record for themselves. Recording it is still worth doing, because it is what makes self-approval checkable -- an approver equal to the executor named in the work item's own plan is refused for the authorities the transition protocol forbids the executor to grant itself -- and that check is a real difference an identity string can carry even where it cannot carry proof. Unlike a delegation's supervisor or a lease's owner, which are always machine/service handles, this field's real values in this repository are human names (the owner) and adapter names (the executor, e.g. \"Claude Code\") -- both contain spaces, so the pattern admits an interior space alongside the handle characters the other two identity fields already allow; it still refuses a blank, leading-space or control-character string.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._@:/+-]{0,199}$"
+    },
+    "contract_digest": {
+      "description": "The SHA-256 of the approved contract file's bytes exactly as stored, lowercase hex. This is the approval's identity in the sense Transition Protocol section 5.3 fixes: what was approved is these bytes, not a version number somebody maintained by hand. Taking the file's bytes as the canonical serialization, with no parsing or re-serialization step, is the same byte-identical idiom ingol doctor already uses for embedded canonical files, and it makes a reformat a material change -- which is correct, because the digest identifies what was approved, not what it meant. The 64-lowercase-hex constraint is what stops a truncated, uppercase or non-hexadecimal string from sitting here and comparing unequal forever, or worse, from being read as a digest by something that only checks presence.",
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "decision_ref": {
+      "description": "The reference to where this approval was recorded as a decision -- for this installation, an owner-decision identifier such as D-136. It is attributable, not resolvable: nothing in this build follows the reference to a document and checks that it says what this record claims, and calling it resolvable would be the same theatre this record class exists to remove. The pattern is deliberately no narrower than the identity pattern above: this schema ships to every governed project ingol init creates, and baking this installation's own D-nnn convention into the shape would refuse a legitimate reference in a project that numbers its decisions differently. What the pattern does refuse is an empty, blank or control-character reference, so the field cannot be satisfied by nothing at all.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._@:/+-]{0,199}$"
+    },
+    "approved_utc": {
+      "description": "UTC instant, whole seconds, at which the authority granted this approval, as measured by the recording client's clock. It is descriptive and nothing enforces a bound against it: this record class deliberately carries no expiry, because Transition Protocol section 5.3 defines an approval as stale when a material change occurs -- which is what the digest catches -- and not when a clock runs out. Inventing a time-based expiry here would add a failure mode the protocol does not define, and project.yaml's staleness_policy.threshold is the lifecycle fold's input, not an approval's.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    }
+  }
+}

@@ -1,0 +1,28 @@
+schema_version: "1"
+# CAP-03 (ROADMAP.md line 133): the task-shape category vocabulary. Protected
+# state, WI015-AC01. categories is the taxonomy ROADMAP.md line 133 names
+# literally — "at minimum" these five, so more may exist one day, but adding
+# one is a deliberate, reviewed change to this file, not a routine candidate:
+# the set of declared categories is held to exact equality
+# (checkCandidateTaskShapeVocabulary, agent_configuration.go), the same
+# structural-permanence rule the sibling agent-configuration.yaml gives its
+# own family and category names. task_shape_categories maps a declared
+# task_shapes string (capability.schema.json, .ingol/capabilities/**) to one
+# of them; unlike the category set, this mapping may only shrink — a
+# candidate may remove an entry, never add one — the same "protected state
+# may only shrink" direction WI010-AC02 gives a capability declaration's own
+# granted lists.
+#
+# task_shape_categories is empty in this first version on purpose
+# (WI015-AC03): with the two capability declarations that exist today
+# (deterministic-evaluator, routine-independent-reviewer), no task_shape
+# string is force-mapped into a category it does not actually belong to. The
+# CAP-03 generated table therefore renders all five categories uncovered and
+# both declarations uncategorized in v1 — the accepted, honest result.
+categories:
+  - data-discovery
+  - domain-logic
+  - business-alignment
+  - security
+  - interfaces
+task_shape_categories: {}

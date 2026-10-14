@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingol.invalid/kits/hallazgos.schema.json",
+  "title": "Hallazgos de una corrida, o el registro de hallazgos de un proyecto",
+  "description": "Un informe es la lista de hallazgos de una corrida (la forma que ya usa la revisión externa). Un registro es el archivo vivo del proyecto: las corridas y todos sus hallazgos con estado; es lo que lee la parte técnica del tablero (D-212).",
+  "oneOf": [
+    {"$ref": "#/$defs/informe"},
+    {"$ref": "#/$defs/registro"}
+  ],
+  "$defs": {
+    "fecha": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "texto": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "hallazgo": {
+      "type": "object",
+      "required": ["id", "severidad", "título", "evidencia", "ejecutado_o_leido"],
+      "properties": {
+        "id": {"$ref": "#/$defs/texto"},
+        "severidad": {"enum": ["P0", "P1", "P2", "P3"]},
+        "título": {"$ref": "#/$defs/texto"},
+        "evidencia": {"$ref": "#/$defs/texto"},
+        "ejecutado_o_leido": {"type": "string", "pattern": "^([Ee]jecutado|[Ll]e[íi]do|[Ii]nferido)"},
+        "área": {"type": "string"},
+        "archivo": {"type": "string"},
+        "línea": {"type": ["integer", "null"]},
+        "commit": {"type": "string"}
+      }
+    },
+    "informe": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/hallazgo"}
+    },
+    "corrida": {
+      "type": "object",
+      "required": ["id", "tipo", "fecha", "commit"],
+      "properties": {
+        "id": {"$ref": "#/$defs/texto"},
+        "tipo": {"enum": ["arquitectura", "probador", "juez-externo", "revisor", "otro"]},
+        "fecha": {"$ref": "#/$defs/fecha"},
+        "commit": {"$ref": "#/$defs/texto"},
+        "duracion_min": {"type": "number", "minimum": 0},
+        "modelo": {"type": "string"},
+        "esfuerzo": {"type": "string"},
+        "cuenta": {"type": "string"}
+      }
+    },
+    "hallazgo_registrado": {
+      "allOf": [
+        {"$ref": "#/$defs/hallazgo"},
+        {
+          "type": "object",
+          "required": ["estado", "capacidad", "corrida", "fecha"],
+          "properties": {
+            "estado": {"enum": ["abierto", "cerrado", "aceptado"]},
+            "capacidad": {"enum": ["arquitectura", "fallas", "concurrencia", "entradas", "resultado", "otra"]},
+            "corrida": {"$ref": "#/$defs/texto"},
+            "fecha": {"$ref": "#/$defs/fecha"},
+            "prueba": {"type": "string"},
+            "cerrado_por": {"$ref": "#/$defs/texto"},
+            "decision": {"$ref": "#/$defs/texto"}
+          },
+          "allOf": [
+            {"if": {"properties": {"estado": {"const": "cerrado"}}, "required": ["estado"]},
+             "then": {"required": ["cerrado_por"]}},
+            {"if": {"properties": {"estado": {"const": "aceptado"}}, "required": ["estado"]},
+             "then": {"required": ["decision"]}}
+          ]
+        }
+      ]
+    },
+    "registro": {
+      "type": "object",
+      "required": ["proyecto", "corridas", "hallazgos"],
+      "properties": {
+        "proyecto": {"$ref": "#/$defs/texto"},
+        "corridas": {"type": "array", "items": {"$ref": "#/$defs/corrida"}},
+        "hallazgos": {"type": "array", "items": {"$ref": "#/$defs/hallazgo_registrado"}}
+      }
+    }
+  }
+}

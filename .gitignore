@@ -1,0 +1,17 @@
+# INGOL: lo generado nunca es fuente (TP-09).
+generated/
+.ingol/generated/
+
+# Material crudo y datos del cliente: grabaciones, transcripciones, planillas
+# y datos de muestra. Nunca en git; la propuesta los cita por nombre.
+material/
+*.mp3
+*.mp4
+*.m4a
+*.wav
+*.webm
+*.mov
+
+# Secretos locales.
+.env
+.env.*

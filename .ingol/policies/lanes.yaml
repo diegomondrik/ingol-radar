@@ -1,0 +1,12 @@
+schema_version: "1"
+default_lane: standard
+controlled_by_content:
+  - PRODUCT_VERSION
+  - .ingol/project.yaml
+  - .ingol/policies/**
+  - .ingol/schemas/**
+  - .ingol/backends/**
+  - .github/workflows/**
+  - cmd/bootstrap-check/**
+  - internal/bootstrap/**
+  - docs/governance/**

@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingol.invalid/schemas/decomposition.schema.json",
+  "title": "INGOL work-item decomposition",
+  "description": "What a planner proposes about one work item (WI018-AC01): the candidate scopes the work could be divided into. It grants nothing, and the reason it is a separate document from delegation.schema.json is exactly that — authority must not be readable out of a proposal. The schema is closed by construction so the property is enforced rather than promised: schema_version, work_item, planner and scopes, additionalProperties false, and within a scope only an identifier, a summary and the paths it would touch. No worker, no capability, no budget, no expiry, no approval, no state and no ordering field can be expressed here at all, so a decomposition cannot be edited into a grant, mistaken for one, or read as one by a mechanism that means well. A scope appearing here and carrying no delegation record is unauthorized delegation, which is the first of the seven MA-07 fail-closed cases. Two rules this schema deliberately does not express, because JSON Schema 2020-12 cannot and a construct that only appeared to enforce them would be worse than their absence: that scope identifiers are distinct within one document (the instance would have to be compared against itself), and that no path escapes the project through a .. segment (RE2, the regexp engine this project's validator uses, has no lookahead). Both belong in Go, the same division lease.schema.json already makes -- and neither is built yet: this schema ships in the delivery that introduces the shape, and the Go side of both rules arrives with the delivery that first reads these documents. Until then the rules are stated here as the contract they will be held to, not as behaviour this build performs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "work_item",
+    "planner",
+    "scopes"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "work_item": {
+      "description": "The work item this decomposition proposes a division of. One decomposition belongs to exactly one work item: a document that could name several would be a plan for a programme, and nothing in this floor supervises across work items.",
+      "type": "string",
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "planner": {
+      "description": "The identity that produced this decomposition. It is an identity, never a credential: it proves nothing and authenticates nobody. Recording it makes the proposal attributable, which is all a proposal needs — the authority question is settled in delegation.schema.json, where a supervisor identity appears for the same honest reason.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._@:/+-]{0,199}$"
+    },
+    "scopes": {
+      "description": "The candidate divisions, in no particular order — this sequence carries no priority, no ranking and no execution order, and none can be added later without changing this schema. One scope is admitted: a decomposition that finds the work indivisible says so by proposing a single scope, which is information, rather than by an empty list that would be indistinguishable from a planner that did nothing.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "summary", "paths"],
+        "properties": {
+          "id": {
+            "description": "The scope's identifier, unique within this document and referenced by the delegation record that grants it. Lower case and hyphens only, so two scopes cannot differ by case alone on a filesystem or in a ref name. Distinctness within the document belongs in Go and is NOT yet built: this delivery carries the shape, not the reader.",
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+          },
+          "summary": {
+            "description": "What this scope is, in one line, for the human who reads the proposal. It is documentation: no mechanism reads it, and no mechanism may start to, because a control that depends on prose written by a planner is not a control.",
+            "type": "string",
+            "minLength": 1
+          },
+          "paths": {
+            "description": "The paths this scope would touch if it were delegated. WOULD: nothing here permits a write. The supervisor decides whether a delegation is issued at all, and the writable_paths of that delegation record — not this list — is what will confine a worker once the delivery that reads these documents exists. This list exists so that the supervisor can judge independent divisibility (disjointness) before issuing anything, and so that a delegation granting paths this proposal never named is visible as the mismatch it is. Relative paths with forward slashes, optionally ending in /** for a subtree; absolute paths, backslashes and bare wildcards cannot be expressed. A .. segment matches this pattern and must be rejected in Go, which is NOT yet built: this delivery carries the shape, not the reader.",
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_.-]+)*(/\\*\\*)?$"
+            }
+          }
+        }
+      }
+    }
+  }
+}

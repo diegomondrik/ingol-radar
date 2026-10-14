@@ -1,0 +1,10 @@
+schema_version: "1"
+profile: bootstrap-controlled
+controlled:
+  owner_approval: required
+  independent_review: optional
+  checker_workflow_review: optional
+standard:
+  independent_review: optional
+fast:
+  independent_review: optional

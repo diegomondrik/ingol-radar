@@ -1,0 +1,6 @@
+schema_version: "1"
+backend: local-git
+enforcement: advisory
+capabilities:
+  work_item_binding: local-check
+  protected_integration: unavailable

@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingol.invalid/schemas/project.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "project_id",
+    "supported_schema_range",
+    "approval_profile",
+    "backend",
+    "enforcement",
+    "protected_branch",
+    "platform_evidence"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "enum": ["1", "2"] },
+    "project_id": { "type": "string", "const": "ingol" },
+    "supported_schema_range": { "type": "string", "pattern": "^[12](-[12])?$" },
+    "approval_profile": { "type": "string", "const": "bootstrap-controlled" },
+    "backend": { "type": "string", "enum": ["local-git", "github"] },
+    "enforcement": { "type": "string", "const": "advisory" },
+    "protected_branch": { "type": "string", "const": "main" },
+    "platform_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["windows_arm64", "macos"],
+      "properties": {
+        "windows_arm64": { "type": "string", "enum": ["verified", "pending", "unsupported"] },
+        "macos": { "type": "string", "enum": ["verified", "pending", "unsupported"] }
+      }
+    },
+    "staleness_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["threshold"],
+      "properties": {
+        "threshold": { "type": "string", "pattern": "^[0-9]+h$" }
+      }
+    },
+    "adapter_compatibility": {
+      "type": "array",
+      "items": {}
+    },
+    "feedback_consent": {
+      "description": "WI006-AC10. The recorded product-feedback consent for this project: a level, the date it was recorded, and — for the two levels canon says always require additional authorization — the authorization itself. The property is optional, and its absence is the case canon fixes an answer for rather than a defect: with no record the effective level is `none` (ARCHITECTURE_BASELINE.md:602), which is this repository's own permanent state. Being optional is also why adding it needs no schema_version bump and no migration registry entry, the same reasoning opaque_project_binding recorded below. Its closed shape is declared once, in entitlement.schema.json#/$defs/feedback_consent_record, and is NOT restated here: two protected copies of one closed enumeration are an enumeration that can drift, and the copy that drifts is the one nothing reads that day. What holds the shape is checkCandidateFeedbackConsent (internal/bootstrap/entitlement_feedback.go), which validates any recorded value against that type read from the trusted root and refuses a fifth level, a missing field, an undeclared field, or `diagnostic`/`support-bundle` with nothing recorded as authorizing them — on the protected copy as well as on a candidate's. Unlike opaque_project_binding this property is deliberately not in protectedProjectManifestFields: that list holds exact equality, and withdrawing consent has to stay possible, so the rule over it is a rank that may fall and never rise.",
+      "type": "object"
+    },
+    "opaque_project_binding": {
+      "description": "WI006-AC04. The locally generated opaque identifier project-scoped entitlement binds to, carrying and revealing no project name, no repository path and no customer identity (ARCHITECTURE_BASELINE.md:591, P1-D4 at :747). The pattern admits 64 lowercase hex characters and nothing else, the same shape entitlement.schema.json fixes for $defs/opaque_scope.project_binding, so the evaluator compares two values of one shape and so a value that carried a name or a path would not validate here. The property is optional: a manifest that predates this field stays valid at the same schema_version, which is why adding it needs no version bump and no migration registry entry. It is locked by protectedProjectManifestFields (internal/bootstrap/wi001.go), so a candidate cannot repoint it to hand itself a different entitlement scope.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "install_profile": {
+      "description": "WI016-AC06. The install profile this project was initialized with. `minimal` is the only value v1 builds -- `software-development`, `security-critical`, `data-analysis` and any language-specific pack FND-11 names are a named gap, not an oversight, and stay unbuilt until a future decision revisits FND-11; the closed enumeration below rejects any of them by name rather than silently accepting an unrecognized value. Required at schema_version 2 by the allOf/if/then block below, the same way that block already requires staleness_policy and adapter_compatibility: a schema_version-1 manifest has no install_profile to carry forward (profiles did not exist at version 1), so migrateProjectV1ToV2 (internal/bootstrap/migration.go) assigns `minimal` on the 1-to-2 read the same way it assigns the staleness threshold and an empty adapter_compatibility list, rather than this property being unconditionally required from every schema_version. Making it required at all still needs protected state's own schema_version-2 manifest to already carry a value the moment this requirement lands, or checkCandidateProjectSchema's admits-the-protected-manifest invariant refuses every candidate on this repository's own history -- a delivery-order constraint that D-124 measured against the real protected checker rather than reasoning about, and that takes three merges and not two: this property lands first, optionally and with no value anywhere, because while the trusted schema the checker validates candidates against still declares additionalProperties false, a candidate manifest already carrying install_profile is rejected by TP-03 (validateProject, internal/bootstrap/check.go); protected state's manifest gets its value second; and only with both already merged can the if/then's required list gain it third. One step longer than the two-delivery ordering D-117 forced for WI-006's opaque_project_binding lock, for the same structural reason: the checker that judges a pull request is main's, so each step has to be trusted state before the next one can be proposed.",
+      "type": "string",
+      "enum": ["minimal"]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "schema_version": { "const": "2" } },
+        "required": ["schema_version"]
+      },
+      "then": {
+        "required": ["staleness_policy", "adapter_compatibility", "install_profile"]
+      }
+    }
+  ]
+}
