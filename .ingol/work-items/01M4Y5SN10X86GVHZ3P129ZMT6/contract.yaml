@@ -1,0 +1,26 @@
+schema_version: "1"
+id: 01M4Y5SN10X86GVHZ3P129ZMT6
+objective: "Trabajo 4: pagina del resumen, comando python -m radar, pruebas y README"
+lane: standard
+affected_surfaces:
+  - ".gitignore"
+  - "README.md"
+  - "radar/__main__.py"
+  - "radar/pagina/__init__.py"
+  - "radar/pagina/enlaces.py"
+  - "radar/pagina/escritura.py"
+  - "radar/pagina/estilo.py"
+  - "radar/pagina/orden.py"
+  - "radar/pagina/texto.py"
+  - "radar/pagina/vista.py"
+  - "tests/pagina/__init__.py"
+  - "tests/pagina/ayudas.py"
+  - "tests/pagina/test_escritura.py"
+  - "tests/pagina/test_main.py"
+  - "tests/pagina/test_orden.py"
+  - "tests/pagina/test_pagina_html.py"
+  - "tests/pagina/test_seguridad.py"
+  - ".ingol/work-items/01M4Y5SN10X86GVHZ3P129ZMT6/**"
+acceptance:
+  - id: AC01
+    description: "The change does what the title says and the project's automatic checks pass."

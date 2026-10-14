@@ -15,3 +15,7 @@ material/
 # Secretos locales.
 .env
 .env.*
+
+# Archivos que genera Python.
+__pycache__/
+*.pyc
