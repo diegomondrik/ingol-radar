@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Recorte mínimo armado a mano: un Atom de Blogger cuyos ítems vienen sin fecha. No es una captura real. -->
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <id>tag:blogger.com,1999:blog-0000000000000000000</id>
+  <title>Google for Developers Blog</title>
+  <entry>
+    <id>tag:blogger.com,1999:blog-0000000000000000000.post-1111111111111111111</id>
+    <title type="text">Build agents with the new Gemini tooling</title>
+    <link rel="replies" type="text/html" href="https://developers.googleblog.com/2026/10/agents.html#comments"/>
+    <link rel="alternate" type="text/html" href="https://developers.googleblog.com/2026/10/agents.html"/>
+    <summary type="html">A walkthrough of the new agent tooling. It runs locally.</summary>
+  </entry>
+  <entry>
+    <id>tag:blogger.com,1999:blog-0000000000000000000.post-2222222222222222222</id>
+    <title type="text">What is new in Android Studio</title>
+    <link rel="alternate" type="text/html" href="https://developers.googleblog.com/2026/10/android-studio.html"/>
+    <summary type="html">Highlights from the latest release.</summary>
+  </entry>
+  <entry>
+    <id>tag:blogger.com,1999:blog-0000000000000000000.post-3333333333333333333</id>
+    <title type="text">Flutter and the web</title>
+    <link rel="alternate" type="text/html" href="https://developers.googleblog.com/2026/09/flutter-web.html"/>
+    <summary type="html">Notes on rendering.</summary>
+  </entry>
+</feed>

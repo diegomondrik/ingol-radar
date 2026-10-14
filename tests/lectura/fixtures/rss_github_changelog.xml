@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Recorte mínimo armado a mano con la forma de un RSS 2.0. No es una captura real. -->
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>The GitHub Blog: Changelog</title>
+    <link>https://github.blog/changelog/</link>
+    <item>
+      <title>Copilot code review now supports custom rules</title>
+      <link>https://github.blog/changelog/2026-10-12-copilot-code-review-custom-rules/</link>
+      <guid isPermaLink="false">https://github.blog/changelog/?p=90001</guid>
+      <pubDate>Mon, 12 Oct 2026 16:00:00 +0000</pubDate>
+      <description>&lt;p&gt;Teams can now define review rules in a file. They apply to every pull request.&lt;/p&gt;</description>
+    </item>
+    <item>
+      <title>Actions: larger runners are generally available</title>
+      <link>https://github.blog/changelog/2026-10-08-actions-larger-runners-ga/</link>
+      <guid isPermaLink="false">https://github.blog/changelog/?p=90002</guid>
+      <pubDate>Thu, 08 Oct 2026 09:30:00 -0300</pubDate>
+      <description>&lt;p&gt;Larger runners leave beta.&lt;/p&gt;</description>
+    </item>
+    <item>
+      <title>Dependabot adds grouped security updates</title>
+      <link>https://github.blog/changelog/2026-09-18-dependabot-grouped-security-updates/</link>
+      <guid isPermaLink="false">https://github.blog/changelog/?p=90003</guid>
+      <pubDate>Fri, 18 Sep 2026 14:00:00 GMT</pubDate>
+      <content:encoded><![CDATA[<p>Security updates can be grouped in one pull request.</p>]]></content:encoded>
+    </item>
+  </channel>
+</rss>

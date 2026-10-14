@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Recorte mínimo armado a mano con la forma de un feed Atom de releases de GitHub. No es una captura real. -->
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en-US">
+  <id>tag:github.com,2008:https://github.com/anthropics/claude-code/releases</id>
+  <title>Release notes from claude-code</title>
+  <updated>2026-10-09T18:00:00Z</updated>
+  <entry>
+    <id>tag:github.com,2008:Repository/100/v2.1.296</id>
+    <updated>2026-10-09T18:00:00Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/anthropics/claude-code/releases/tag/v2.1.296"/>
+    <title>v2.1.296</title>
+    <content type="html">&lt;p&gt;Fixed a crash when resuming a session. Added a flag for headless runs.&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/100/v2.1.295</id>
+    <updated>2026-10-07T12:30:00+02:00</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/anthropics/claude-code/releases/tag/v2.1.295"/>
+    <title>v2.1.295</title>
+    <content type="html">&lt;p&gt;Improved startup time.&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/100/v2.1.290</id>
+    <updated>2026-09-20T09:15:00Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/anthropics/claude-code/releases/tag/v2.1.290"/>
+    <title>v2.1.290</title>
+    <content type="html">&lt;p&gt;Hooks can now return structured output.&lt;/p&gt;</content>
+  </entry>
+</feed>

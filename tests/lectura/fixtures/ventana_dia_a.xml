@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Recorte mínimo armado a mano: la fuente el día A. No es una captura real. -->
+<rss version="2.0">
+  <channel>
+    <title>Fuente de prueba</title>
+    <item>
+      <title>Novedad uno</title>
+      <link>https://ejemplo.test/uno</link>
+      <guid>ej-1</guid>
+      <pubDate>Mon, 05 Oct 2026 10:00:00 GMT</pubDate>
+      <description>Primera frase del uno. Segunda frase.</description>
+    </item>
+    <item>
+      <title>Novedad dos</title>
+      <link>https://ejemplo.test/dos</link>
+      <guid>ej-2</guid>
+      <pubDate>Tue, 06 Oct 2026 10:00:00 GMT</pubDate>
+      <description>Frase del dos.</description>
+    </item>
+    <item>
+      <title>Novedad tres</title>
+      <link>https://ejemplo.test/tres</link>
+      <guid>ej-3</guid>
+      <pubDate>Wed, 07 Oct 2026 10:00:00 GMT</pubDate>
+      <description>Frase del tres.</description>
+    </item>
+  </channel>
+</rss>

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Recorte mínimo armado a mano con la forma del feed de un canal de YouTube. No es una captura real. -->
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/" xmlns="http://www.w3.org/2005/Atom">
+  <title>IBM Technology</title>
+  <entry>
+    <id>yt:video:AAAAAAAAAAA</id>
+    <yt:videoId>AAAAAAAAAAA</yt:videoId>
+    <title>Human in the Loop Is Not a Governance Strategy for Agentic AI</title>
+    <link rel="alternate" href="https://www.youtube.com/watch?v=AAAAAAAAAAA"/>
+    <published>2026-10-10T15:00:07+00:00</published>
+    <updated>2026-10-11T02:11:00+00:00</updated>
+    <media:group>
+      <media:title>Human in the Loop Is Not a Governance Strategy for Agentic AI</media:title>
+      <media:description>Why approval clicks do not make agents safe. Subscribe for more.</media:description>
+    </media:group>
+  </entry>
+  <entry>
+    <id>yt:video:BBBBBBBBBBB</id>
+    <yt:videoId>BBBBBBBBBBB</yt:videoId>
+    <title>MCP explained</title>
+    <link rel="alternate" href="https://www.youtube.com/watch?v=BBBBBBBBBBB"/>
+    <published>2026-10-03T13:00:00+00:00</published>
+    <updated>2026-10-03T13:00:00+00:00</updated>
+    <media:group>
+      <media:title>MCP explained</media:title>
+      <media:description>A short tour of the protocol.</media:description>
+    </media:group>
+  </entry>
+</feed>
