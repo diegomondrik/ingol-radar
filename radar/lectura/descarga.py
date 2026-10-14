@@ -21,8 +21,10 @@ from __future__ import annotations
 import codecs
 import http.client
 import io
+import re
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from functools import partial
 from urllib.parse import urlsplit
@@ -65,6 +67,58 @@ class Plazo:
         """El timeout para la próxima operación de red: el de siempre, o menos si queda menos."""
         self.verificar()
         return max(0.05, min(TIMEOUT, self.restante()))
+
+
+def host_sin_www(host: str) -> str:
+    """El host en minúscula y sin UN `www.` inicial: `www.anthropic.com` y `anthropic.com` son el mismo sitio."""
+    host = (host or "").lower()
+    return host[4:] if host.startswith("www.") else host
+
+
+def _puerto_escrito(netloc: str) -> str:
+    """El puerto tal como está escrito en la url ("" si no hay): `:0443` no es lo mismo que `:443`."""
+    resto = netloc.rpartition("@")[2]
+    if resto.startswith("["):  # IPv6: [::1]:443
+        resto = resto.partition("]")[2]
+        return resto[1:] if resto.startswith(":") else ""
+    return resto.partition(":")[2]
+
+
+def ruta_bajo_prefijo(ruta: str, prefijo: str) -> bool:
+    """True si `ruta` (la parte de ruta de una url) está debajo de `prefijo` (por ejemplo `/openai/codex/`).
+
+    El prefijo se compara sobre la ruta CRUDA (sin des-escapar), sin distinguir mayúsculas (GitHub no las
+    distingue). Se rechaza una ruta con `%2f` o `%5c` (una barra o una barra invertida escondidas), con doble
+    escape (lo que se des-escapa una vez y vuelve a cambiar) y, ya des-escapada una vez, con `.` o `..` como
+    segmento, barras invertidas o NUL: `/openai/codex/../evil` y `/openai/codex/%2e%2e/evil` no están debajo.
+    """
+    if re.search("%(?:2f|5c)", ruta, re.IGNORECASE):
+        return False
+    actual = urllib.parse.unquote(ruta)
+    if urllib.parse.unquote(actual) != actual:
+        return False
+    if "\\" in actual or "\x00" in actual:
+        return False
+    segmentos = actual.split("/")
+    if any(seg in (".", "..") for seg in segmentos):
+        return False
+    return ruta.lower().startswith(prefijo.lower())
+
+
+def _exigir_mismo_host(url: str, host: str, prefijo: str | None = None) -> None:
+    """La url tiene que quedarse en `host` (y, si se indica, debajo de `prefijo`), por https en el puerto 443."""
+    try:
+        partes = urlsplit(url)
+        destino = partes.hostname
+        puerto = partes.port
+    except ValueError as exc:
+        raise ErrorDescarga(f"url ilegible: {url[:200]!r}") from exc
+    if host_sin_www(destino or "") != host_sin_www(host):
+        raise ErrorDescarga(f"el destino sale del sitio {host!r}: {url[:200]!r}")
+    if puerto not in (None, 443) or _puerto_escrito(partes.netloc) not in ("", "443"):
+        raise ErrorDescarga(f"el destino usa un puerto que no es el 443: {url[:200]!r}")
+    if prefijo is not None and not ruta_bajo_prefijo(partes.path or "/", prefijo):
+        raise ErrorDescarga(f"el destino sale de {prefijo!r}: {url[:200]!r}")
 
 
 def _exigir_destino(url: str) -> None:
@@ -193,18 +247,33 @@ class SoloHttps(urllib.request.HTTPRedirectHandler):
 
     max_redirections = MAX_REDIRECCIONES
 
+    def __init__(self, host: str | None = None, prefijo: str | None = None) -> None:
+        super().__init__()
+        self.host = host  # si se indica, una redirección sólo puede quedarse en ese sitio (puerto 443)
+        self.prefijo = prefijo  # y, si se indica, debajo de esta ruta
+
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         _exigir_destino(newurl)
+        if self.host is not None:
+            _exigir_mismo_host(newurl, self.host, self.prefijo)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-def crear_opener(plazo: Plazo | None = None) -> urllib.request.OpenerDirector:
-    return urllib.request.build_opener(SoloHttps(), ManejadorHttps(plazo or Plazo()))
+def crear_opener(
+    plazo: Plazo | None = None, host: str | None = None, prefijo: str | None = None
+) -> urllib.request.OpenerDirector:
+    return urllib.request.build_opener(SoloHttps(host, prefijo), ManejadorHttps(plazo or Plazo()))
 
 
-def _abrir_real(url: str, plazo: Plazo | None = None):
+def _abrir_real(url: str, plazo: Plazo | None = None, host: str | None = None, prefijo: str | None = None):
     pedido = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    return crear_opener(plazo).open(pedido, timeout=TIMEOUT)
+    if host is None:
+        opener = crear_opener(plazo)
+    elif prefijo is None:
+        opener = crear_opener(plazo, host)
+    else:
+        opener = crear_opener(plazo, host, prefijo)
+    return opener.open(pedido, timeout=TIMEOUT)
 
 
 def leer_cuerpo(respuesta, tope: int = TOPE_BYTES, plazo: float | Plazo = PLAZO_TOTAL, reloj=None) -> bytes:
@@ -247,11 +316,17 @@ def decodificar(cuerpo: bytes, charset: str | None) -> str:
     return cuerpo.decode("utf-8", errors="replace")
 
 
-def descargar(url: str, abrir=None) -> str:
-    """Baja `url` (https) y devuelve el texto, todo dentro de PLAZO_TOTAL. `abrir` permite inyectar una respuesta falsa."""
+def descargar(url: str, abrir=None, host: str | None = None, prefijo: str | None = None) -> str:
+    """Baja `url` (https) y devuelve el texto, todo dentro de PLAZO_TOTAL. `abrir` permite inyectar una respuesta falsa.
+
+    Con `host`, la url y TODA redirección tienen que quedarse en ese sitio (ver `host_sin_www`), por
+    https en el puerto 443; con `prefijo`, además debajo de esa ruta (ver `ruta_bajo_prefijo`).
+    """
     plazo = Plazo()  # la fecha límite se fija al entrar y cubre todo lo que sigue
     _exigir_destino(url)
-    abrir = abrir or partial(_abrir_real, plazo=plazo)
+    if host is not None:
+        _exigir_mismo_host(url, host, prefijo)
+    abrir = abrir or partial(_abrir_real, plazo=plazo, host=host, prefijo=prefijo)
     try:
         respuesta = abrir(url)
         try:

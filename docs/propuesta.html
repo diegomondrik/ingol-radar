@@ -183,6 +183,9 @@ footer{border-top:1px solid var(--line);margin-top:48px;padding:20px 0 40px;colo
         </ul>
         <p class="sub" style="margin:10px 0 0">Son las que INGOL ya usa para juzgar novedades externas. Lo que propone es
           consejo, como un análisis externo; si traés una idea propia, se analiza igual.<span class="cite">pedido · P3</span></p>
+        <p class="sub" style="margin:10px 0 0">Va en dos pasadas: la primera, con título y frase, descarta el ruido; la segunda,
+          sólo para las que dieron «sí» o «tal vez», baja el artículo del mismo sitio de la fuente, recortado, y lo analiza de
+          nuevo. Un video sin texto se queda con el título y lo dice.<span class="cite">cambio aprobado · 2026-10-14</span></p>
       </div>
       <div class="card">
         <h3 style="margin-top:0">Así se va a ver cada novedad <span class="badge b-mute">maqueta</span></h3>
@@ -253,9 +256,9 @@ footer{border-top:1px solid var(--line);margin-top:48px;padding:20px 0 40px;colo
         Pruebas sobre recortes de las fuentes, dos ventanas seguidas y entradas armadas a propósito. <code>radar/lectura/**</code> <code>radar/memoria/**</code> <code>tests/lectura/**</code>
         <div class="lane">critical: no · lane: standard · approvals: none · fast: no (2026-10-14)</div>
         <p>Cuando el trabajo 1 marque la carpeta como ruta sensible, pasa a crítico y pide tu firma.<span class="cite">fast-lane.yaml · CLAUDE.md</span></p></div></div>
-      <div class="work crit"><div class="dot">3</div><div class="body"><h3>Análisis con Claude <span class="badge b-norm">hoy normal</span> <span class="badge b-crit">después del 1: tu firma</span></h3>
-        Sin herramientas, con respuesta de forma fija; pruebas de entradas armadas. Acá se verifica que <code>claude -p</code> pueda correr así. <code>radar/analisis/**</code> <code>tests/analisis/**</code>
-        <div class="lane">critical: no · lane: standard · approvals: none · fast: no (2026-10-14)</div></div></div>
+      <div class="work crit"><div class="dot">3</div><div class="body"><h3>Análisis con Claude, en dos pasadas <span class="badge b-crit">tu firma</span></h3>
+        Sin herramientas, con respuesta de forma fija; la segunda pasada lee el artículo de las que pasan la primera; pruebas de entradas armadas. Se verificó que <code>claude -p</code> corre así. <code>radar/analisis/**</code> <code>radar/lectura/**</code> <code>tests/analisis/**</code> <code>tests/lectura/**</code> <code>docs/propuesta.*</code>
+        <div class="lane">critical: yes · lane: controlled · approvals: owner_approval · fast: no (2026-10-14)</div></div></div>
       <div class="work"><div class="dot">4</div><div class="body"><h3>Página y primer resumen <span class="badge b-norm">normal</span> <span class="badge b-ok">entregable</span></h3>
         El resumen de las últimas cuatro semanas, contrastado con lo que INGOL ya tenía registrado como importante en esas semanas, para ver si se le escapó algo. <code>radar/pagina/**</code> <code>radar/__main__.py</code> <code>tests/pagina/**</code> <code>README.md</code>
         <div class="lane">critical: no · lane: standard · approvals: none · fast: no</div>
@@ -349,7 +352,8 @@ footer{border-top:1px solid var(--line);margin-top:48px;padding:20px 0 40px;colo
     <h2>Aprobación</h2>
     <p style="margin:0">Aprobada antes del primer cambio de código.</p>
     <dl><dt>Quién</dt><dd>Carlos Diego Mondrik, owner de INGOL</dd><dt>Fecha</dt><dd>2026-10-14</dd><dt>Sus palabras</dt><dd>«aprobada la propuesta para el radar.»</dd>
-      <dt>Cambio</dt><dd>2026-10-14, antes del trabajo 1: sin zonas, sólo las dos rutas sensibles. «ok con la opcion de la decision»</dd></dl>
+      <dt>Cambio</dt><dd>2026-10-14, antes del trabajo 1: sin zonas, sólo las dos rutas sensibles. «ok con la opcion de la decision»</dd>
+      <dt>Cambio</dt><dd>2026-10-14, durante el trabajo 3: análisis en dos pasadas; la segunda lee el artículo. Con sólo el título, los 7 artículos de la prueba no alcanzaron para decir en qué consiste el cambio. «Sí, en dos pasadas (Recomendado)»</dd></dl>
   </section>
 </main>
 
