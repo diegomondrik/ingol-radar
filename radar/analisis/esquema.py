@@ -20,7 +20,7 @@ MAX_TEXTO = 1500
 SIRVE = ("si", "no", "tal_vez")
 TRES = ("si", "no", "no_se")
 ADAPTADOR_O_CORE = ("adaptador", "core", "ninguno", "no_se")
-BASES = ("titulo", "titulo_y_frase", "idea_del_owner")
+BASES = ("titulo", "titulo_y_frase", "articulo", "idea_del_owner")
 CONFIANZAS = ("alta", "media", "baja")
 
 CAMPOS_ITEM = frozenset(

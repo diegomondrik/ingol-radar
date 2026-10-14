@@ -17,6 +17,23 @@ class Opinion:
 
 
 @dataclass(frozen=True, slots=True)
+class InfoArticulo:
+    """Qué pasó con el artículo de una novedad (no lo escribe el modelo: lo anota el analizador).
+
+    `estado`: "leido" (se usó en la segunda pasada), "no_corresponde" (la primera pasada dijo que no),
+    "desactivado" (sin segunda pasada), "no_leido" (corrida cortada o tope), o el estado de la lectura
+    cuando no se pudo: "no_aplica", "host_distinto", "sin_texto", "error".
+    """
+
+    estado: str
+    motivo: str | None = None
+    recortado: bool = False
+
+    def a_dict(self) -> dict:
+        return {"estado": self.estado, "motivo": self.motivo, "recortado": self.recortado}
+
+
+@dataclass(frozen=True, slots=True)
 class Analisis:
     """El análisis de una novedad, ya validado y con todo el texto limpio. Inmutable."""
 
@@ -34,6 +51,9 @@ class Analisis:
     base: str  # "titulo" | "titulo_y_frase" | "idea_del_owner"
     confianza: str  # "alta" | "media" | "baja"
     sospecha_de_instrucciones: bool
+    # Lo que anota el analizador, fuera del esquema del modelo:
+    pasada: int = 1  # 1 título y frase; 2 con el artículo
+    articulo: InfoArticulo | None = None
 
     def a_dict(self) -> dict:
         return {
@@ -51,6 +71,8 @@ class Analisis:
             "base": self.base,
             "confianza": self.confianza,
             "sospecha_de_instrucciones": self.sospecha_de_instrucciones,
+            "pasada": self.pasada,
+            "articulo": self.articulo.a_dict() if self.articulo else None,
         }
 
 
@@ -66,6 +88,10 @@ class Resultado:
       desconocida o sin clave).
     - `por_tope`: novedades que quedaron sin analizar porque se acabó el tope de la corrida
       (sin intentar, o sin reintento).
+    - `aisladas`: novedades de un lote con una sospechosa de instrucciones que se volvieron a
+      analizar solas.
+    - `segundas`: llamadas de la segunda pasada (con el artículo); `segundas_fallidas`: las que fallaron
+      (queda el análisis de la primera pasada); `sin_segunda_por_tope`: las que no se hicieron por el tope.
     - `abortada`: si la corrida se cortó antes de tiempo, el motivo; si no, None.
     """
 
@@ -76,6 +102,10 @@ class Resultado:
     fallidas: int = 0
     ignoradas: int = 0
     por_tope: int = 0
+    aisladas: int = 0
+    segundas: int = 0
+    segundas_fallidas: int = 0
+    sin_segunda_por_tope: int = 0
     abortada: str | None = None
 
     def contadores(self) -> dict:
@@ -85,6 +115,10 @@ class Resultado:
             "fallidas": self.fallidas,
             "ignoradas": self.ignoradas,
             "por_tope": self.por_tope,
+            "aisladas": self.aisladas,
+            "segundas": self.segundas,
+            "segundas_fallidas": self.segundas_fallidas,
+            "sin_segunda_por_tope": self.sin_segunda_por_tope,
             "abortada": self.abortada,
         }
 

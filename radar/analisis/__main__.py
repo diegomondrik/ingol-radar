@@ -79,7 +79,24 @@ def cargar_afinado(ruta: Path) -> tuple[list[Novedad], dict[str, dict]]:
     return novedades, esperados
 
 
+def _destino_nuevo(carpeta: Path, ahora: datetime) -> Path:
+    """Un `analisis-<marca>.json` que no existe: la marca llega a los microsegundos y, si aun así existe
+    (dos corridas en el mismo instante), se agrega `-2`, `-3`... Se reserva con creación exclusiva para que
+    dos procesos no elijan el mismo nombre."""
+    carpeta.mkdir(parents=True, exist_ok=True)
+    marca = ahora.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%S") + f"{ahora.microsecond:06d}Z"
+    for n in range(1, 1000):
+        ruta = carpeta / (f"analisis-{marca}.json" if n == 1 else f"analisis-{marca}-{n}.json")
+        try:
+            os.close(os.open(ruta, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+        except FileExistsError:
+            continue
+        return ruta
+    raise OSError(f"no encontré un nombre libre en {carpeta}")
+
+
 def _escribir_atomico(ruta: Path, datos: dict) -> None:
+    """Escribe a un temporal de nombre único y lo reemplaza de una vez: el destino queda entero o como estaba."""
     ruta.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=ruta.name + ".", suffix=".tmp", dir=ruta.parent)
     try:
@@ -100,8 +117,8 @@ def _resumen(resultado: Resultado, segundos: float, esperados: dict[str, dict], 
     salida.write(
         f"Analizadas: {len(resultado.analizadas)}  Sin analizar: {len(resultado.sin_analizar)}  "
         f"Tiempo: {segundos:.0f} s\n"
-        f"Llamadas: {c['llamadas']}  reintentos: {c['reintentos']}  fallidas: {c['fallidas']}  "
-        f"ignoradas: {c['ignoradas']}  por tope: {c['por_tope']}\n"
+        f"Llamadas: {c['llamadas']}  reintentos: {c['reintentos']}  aisladas: {c['aisladas']}  "
+        f"fallidas: {c['fallidas']}  ignoradas: {c['ignoradas']}  por tope: {c['por_tope']}\n"
     )
     if resultado.abortada:
         salida.write(f"CORRIDA CORTADA: {resultado.abortada}\n")
@@ -118,7 +135,11 @@ def _resumen(resultado: Resultado, segundos: float, esperados: dict[str, dict], 
         salida.write(f"  {clave:<10} SIN ANALIZAR: {motivo[:200]}\n")
 
 
-def main(argv=None, runner=cliente.ejecutar, contexto: str | None = None, salida=None, reloj=time.monotonic) -> int:
+def _ahora() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def main(argv=None, runner=cliente.ejecutar, contexto: str | None = None, salida=None, reloj=time.monotonic, ahora=_ahora) -> int:
     salida = salida or sys.stdout
     parser = argparse.ArgumentParser(
         prog="python -m radar.analisis",
@@ -146,16 +167,31 @@ def main(argv=None, runner=cliente.ejecutar, contexto: str | None = None, salida
         return 1
 
     _resumen(resultado, segundos, esperados, salida)
+    datos = resultado.a_dict()
+    guardado = True
     destino = args.salida
-    if destino is None and args.afinado is not None:
-        marca = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        destino = SALIDA_POR_DEFECTO / f"analisis-{marca}.json"
-    if destino is not None:
-        _escribir_atomico(destino, resultado.a_dict())
-        salida.write(f"Resultado escrito en {destino}\n")
-    elif args.idea is not None:
-        salida.write(json.dumps(resultado.a_dict(), ensure_ascii=False, indent=2) + "\n")
-    if resultado.abortada:
+    reservado = None  # el nombre que reservó `_destino_nuevo`: si no se llega a escribir, no queda un archivo vacío
+    try:
+        if destino is None and args.afinado is not None:
+            destino = reservado = _destino_nuevo(SALIDA_POR_DEFECTO, ahora())
+        if destino is not None:
+            _escribir_atomico(destino, datos)
+            salida.write(f"Resultado escrito en {destino}\n")
+    except OSError as exc:
+        # Lo analizado costó cuota: si no se puede guardar, se vuelca a la pantalla para no perderlo.
+        guardado = False
+        if reservado is not None:
+            try:
+                if reservado.stat().st_size == 0:
+                    reservado.unlink()
+            except OSError:
+                pass
+        salida.write(f"NO SE PUDO GUARDAR el resultado ({type(exc).__name__}: {exc}); va completo acá abajo.\n")
+        salida.write(json.dumps(datos, ensure_ascii=False, indent=2) + "\n")
+    else:
+        if destino is None:  # --idea sin --salida
+            salida.write(json.dumps(datos, ensure_ascii=False, indent=2) + "\n")
+    if resultado.abortada or not guardado:
         return 1
     return 2 if resultado.sin_analizar else 0
 

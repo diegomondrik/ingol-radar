@@ -47,6 +47,75 @@ class TestEsquema(unittest.TestCase):
         self.assertNotEqual(a, b)
 
 
+class TestEsquemaContraLaValidacion(unittest.TestCase):
+    """Lo que se le manda a claude (el esquema) y lo que se valida acá tienen que decir lo mismo."""
+
+    def setUp(self):
+        self.esq = esquema.esquema_respuesta()
+        self.item = self.esq["properties"]["analisis"]["items"]
+        self.props = self.item["properties"]
+
+    def test_el_nivel_de_arriba(self):
+        self.assertEqual(self.esq["type"], "object")
+        self.assertEqual(self.esq["required"], ["analisis"])
+        self.assertEqual(self.esq["properties"]["analisis"]["type"], "array")
+        self.assertEqual(self.item["type"], "object")
+
+    def test_los_enums_son_los_de_la_validacion(self):
+        self.assertEqual(self.props["sirve"]["enum"], list(esquema.SIRVE))
+        self.assertEqual(self.props["adaptador_o_core"]["enum"], list(esquema.ADAPTADOR_O_CORE))
+        self.assertEqual(self.props["base"]["enum"], list(esquema.BASES))
+        self.assertEqual(self.props["confianza"]["enum"], list(esquema.CONFIANZAS))
+        for campo in ("mejora_control", "mejora_software", "lo_regala_el_proveedor"):
+            self.assertEqual(self.props[campo]["properties"]["respuesta"]["enum"], list(esquema.TRES), campo)
+
+    def test_las_constantes_son_las_pedidas(self):
+        # Literales a propósito: si alguien cambia una constante, el esquema y la validación cambian juntos
+        # y nada más lo notaría.
+        self.assertEqual(esquema.SIRVE, ("si", "no", "tal_vez"))
+        self.assertEqual(esquema.TRES, ("si", "no", "no_se"))
+        self.assertEqual(esquema.ADAPTADOR_O_CORE, ("adaptador", "core", "ninguno", "no_se"))
+        self.assertEqual(esquema.BASES, ("titulo", "titulo_y_frase", "articulo", "idea_del_owner"))
+        self.assertEqual(esquema.CONFIANZAS, ("alta", "media", "baja"))
+        self.assertEqual(esquema.MAX_TEXTO, 1500)
+
+    def test_los_tipos(self):
+        for campo in ("ruido", "sospecha_de_instrucciones"):
+            self.assertEqual(self.props[campo], {"type": "boolean"}, campo)
+        self.assertEqual(self.props["clave"]["type"], "string")
+        for campo in ("sirve", "adaptador_o_core", "base", "confianza"):
+            self.assertEqual(self.props[campo]["type"], "string", campo)
+        for campo in ("mejora_control", "mejora_software", "lo_regala_el_proveedor"):
+            self.assertEqual(self.props[campo]["type"], "object", campo)
+            self.assertEqual(self.props[campo]["properties"]["por_que"]["type"], "string", campo)
+
+    def test_los_textos_tienen_los_mismos_topes_que_la_validacion(self):
+        textos = [self.props[c] for c in esquema.CAMPOS_TEXTO]
+        textos += [self.props[c]["properties"]["por_que"] for c in ("mejora_control", "mejora_software", "lo_regala_el_proveedor")]
+        for t in textos:
+            self.assertEqual((t["type"], t["minLength"], t["maxLength"]), ("string", 1, esquema.MAX_TEXTO))
+
+    def test_el_tope_del_esquema_es_el_que_la_validacion_aplica(self):
+        justo = item_valido("a", por_que_sirve_o_no="a" * esquema.MAX_TEXTO)
+        pasado = item_valido("a", por_que_sirve_o_no="a" * (esquema.MAX_TEXTO + 1))
+        self.assertIn("a", validar([justo]).analizadas)
+        self.assertIn("a", validar([pasado]).fallas)
+        for campo in ("por_que_sirve_o_no",):
+            self.assertEqual(self.props[campo]["maxLength"], esquema.MAX_TEXTO)
+
+    def test_todo_enum_del_esquema_es_aceptado_y_nada_mas(self):
+        for campo, valores in (
+            ("sirve", esquema.SIRVE),
+            ("adaptador_o_core", esquema.ADAPTADOR_O_CORE),
+            ("confianza", esquema.CONFIANZAS),
+        ):
+            for v in self.props[campo]["enum"]:
+                extra = {"ruido": False} if campo != "sirve" else {"ruido": False}
+                v_ok = validar([item_valido("a", **{campo: v}, **extra)], bases=esquema.BASES)
+                self.assertIn("a", v_ok.analizadas, (campo, v))
+            self.assertEqual(set(self.props[campo]["enum"]), set(valores))
+
+
 class TestCaminoFeliz(unittest.TestCase):
     def test_item_valido_se_vuelve_analisis_inmutable(self):
         v = validar([item_valido("a")])
@@ -63,7 +132,10 @@ class TestCaminoFeliz(unittest.TestCase):
 
     def test_a_dict_vuelve_a_validar_igual(self):
         a = validar([item_valido("a")]).analizadas["a"]
-        v2 = validar([a.a_dict()])
+        crudo = a.a_dict()
+        self.assertEqual((crudo["pasada"], crudo["articulo"]), (1, None))  # los anota el analizador, no el modelo
+        del crudo["pasada"], crudo["articulo"]
+        v2 = validar([crudo])
         self.assertEqual(v2.analizadas["a"], a)
 
     def test_el_ruido_con_sirve_no_valida(self):

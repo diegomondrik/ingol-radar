@@ -47,6 +47,15 @@ def novedad(n: int | str, **cambios) -> Novedad:
     return Novedad(**datos)
 
 
+def real(p: dict) -> str:
+    """La clave REAL de un item que viajó al modelo: ahí sólo va un alias (n1, n2...), así que se
+    reconoce por el título de `novedad(n)`. Un item de otro origen devuelve su `clave` tal cual."""
+    marca = "Título de la novedad "
+    if p.get("titulo", "").startswith(marca):
+        return f"f:{p['titulo'][len(marca):]}"
+    return p["clave"]
+
+
 def datos_del_usuario(usuario: str) -> list[dict]:
     """Los items que viajan en el bloque de datos de un mensaje de usuario."""
     assert usuario.count(INICIO_DATOS) == 1 and usuario.count(FIN_DATOS) == 1
@@ -58,7 +67,8 @@ def datos_del_usuario(usuario: str) -> list[dict]:
 class RunnerFalso:
     """Un `runner` que se arma con una función `(items) -> respuesta | excepción`.
 
-    Guarda cada llamada (`usuario`, `sistema`, `esquema`) y las claves que viajaron en ella.
+    Guarda cada llamada (`usuario`, `sistema`, `esquema`), los alias que viajaron (`aliases`) y las
+    claves reales de esas novedades (`claves`, reconocidas por el título: ver `real`).
     """
 
     def __init__(self, funcion=None):
@@ -72,7 +82,13 @@ class RunnerFalso:
     def __call__(self, *, usuario, sistema, esquema):
         items = datos_del_usuario(usuario)
         self.llamadas.append(
-            {"usuario": usuario, "sistema": sistema, "esquema": copy.deepcopy(esquema), "claves": [p["clave"] for p in items]}
+            {
+                "usuario": usuario,
+                "sistema": sistema,
+                "esquema": copy.deepcopy(esquema),
+                "aliases": [p["clave"] for p in items],
+                "claves": [real(p) for p in items],
+            }
         )
         resultado = self.funcion(items)
         if isinstance(resultado, BaseException):

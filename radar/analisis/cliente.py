@@ -6,6 +6,10 @@ Qué garantiza cada llamada:
   de comandos. Verificado con claude 2.1.292: `-p` sin argumento de prompt lo lee de stdin.
 - Sin herramientas (`--tools ""`), sin servidores MCP de afuera, sin configuración de usuario,
   proyecto ni local, sin guardar la sesión, desde un directorio temporal vacío.
+- El subproceso corre con un entorno explícito: una copia del del radar SIN las variables que
+  cambiarían a dónde va el prompt o quién paga (ANTHROPIC_*, CLAUDE_CODE_USE_*, AWS_*,
+  GOOGLE_APPLICATION_CREDENTIALS). Y si en el entorno hay una clave de API, una dirección de API o un
+  proveedor distinto, no corre: el radar usa la suscripción del owner.
 - La salida se acepta sólo si: código 0, JSON válido, `is_error` falso, `subtype` "success",
   `permission_denials` vacío y `structured_output` presente. Cualquier otra cosa es una falla de
   la llamada, con su motivo.
@@ -34,7 +38,45 @@ ROL_ANALISIS = "criterio"
 VARIABLE_CLAUDE = "RADAR_CLAUDE"
 TIMEOUT_S = 240
 MAX_SALIDA = 5_000_000  # bytes de stdout que se aceptan
-MAX_LINEA_DE_COMANDOS = 30_000  # Windows corta en 32 767 caracteres
+MAX_LINEA_DE_COMANDOS = 30_000  # Windows corta en 32 767 caracteres (de la línea ya con las comillas escapadas)
+
+
+# Variables que, si están, hacen que claude facture por API o mande el prompt a otro lado: el radar
+# NO corre así (usa la suscripción) y avisa.
+_PROHIBIDAS = {
+    "ANTHROPIC_API_KEY": "hay una clave de API en el entorno (ANTHROPIC_API_KEY): claude facturaría por API",
+    "ANTHROPIC_AUTH_TOKEN": "hay un token de API en el entorno (ANTHROPIC_AUTH_TOKEN): claude facturaría por API",
+    "ANTHROPIC_BASE_URL": "hay otra dirección de API en el entorno (ANTHROPIC_BASE_URL): el prompt iría a otro servidor",
+}
+_PREFIJO_PROVEEDOR = "CLAUDE_CODE_USE_"
+_AVISO_FINAL = "el radar usa tu suscripción y no corre así; sacala o corré en otra terminal"
+
+# Lo que NO pasa al subproceso, aunque esté vacío o no se haya detectado arriba.
+_PREFIJOS_FUERA = ("ANTHROPIC_", "CLAUDE_CODE_USE_", "AWS_")
+_NOMBRES_FUERA = ("GOOGLE_APPLICATION_CREDENTIALS",)
+
+
+def exigir_suscripcion(entorno: Mapping[str, str]) -> None:
+    """Si el entorno haría que claude no use la suscripción, `ClaudeNoDisponible` en castellano llano."""
+    for nombre, valor in entorno.items():
+        mayuscula = nombre.upper()  # en Windows las variables no distinguen mayúsculas
+        if not str(valor).strip():
+            continue
+        if mayuscula in _PROHIBIDAS:
+            raise ClaudeNoDisponible(f"{_PROHIBIDAS[mayuscula]}: {_AVISO_FINAL}")
+        if mayuscula.startswith(_PREFIJO_PROVEEDOR):
+            raise ClaudeNoDisponible(
+                f"hay otro proveedor de modelos en el entorno ({mayuscula}): claude no usaría tu suscripción: {_AVISO_FINAL}"
+            )
+
+
+def entorno_del_subproceso(entorno: Mapping[str, str]) -> dict[str, str]:
+    """Copia del entorno sin lo que cambia proveedor, clave o destino; con lo que la sesión necesita (PATH, perfil, etc.)."""
+    return {
+        k: v
+        for k, v in entorno.items()
+        if not k.upper().startswith(_PREFIJOS_FUERA) and k.upper() not in _NOMBRES_FUERA
+    }
 
 
 def _es_lote_de_windows(ruta: str) -> bool:
@@ -150,9 +192,12 @@ def ejecutar(
     timeout: float = TIMEOUT_S,
 ) -> dict:
     """Una llamada a claude. Devuelve el objeto de `structured_output` o lanza `ErrorClaude`."""
+    entorno = os.environ if entorno is None else entorno
+    exigir_suscripcion(entorno)
     exe = localizar_claude(entorno)
     comando = armar_comando(exe, sistema, esquema, rol)
-    if sum(len(a) + 1 for a in comando) > MAX_LINEA_DE_COMANDOS:
+    # Cuenta como Windows: cada comilla va escapada (cuenta doble) y los argumentos con espacios van entre comillas.
+    if len(subprocess.list2cmdline(comando)) > MAX_LINEA_DE_COMANDOS:
         raise ErrorClaude("el prompt de sistema es demasiado largo para la línea de comandos")
     with tempfile.TemporaryDirectory(prefix="radar-claude-", ignore_cleanup_errors=True) as vacio:
         try:
@@ -161,6 +206,7 @@ def ejecutar(
                 input=usuario.encode("utf-8"),
                 capture_output=True,
                 cwd=vacio,
+                env=entorno_del_subproceso(entorno),
                 timeout=timeout,
                 check=False,
             )
