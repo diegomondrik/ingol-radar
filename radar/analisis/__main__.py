@@ -146,6 +146,17 @@ def _escribir_atomico(ruta: Path, datos: dict) -> None:
         raise
 
 
+def _agregar_analisis_del_lote(datos: dict, resultado: Resultado) -> None:
+    """Sólo para el afinado: el análisis que cada novedad traía del lote antes de reanalizarse aislada, para ver si
+    la trampa inclinó a las vecinas. En cada análisis va como `analisis_del_lote`; si el reanálisis no se pudo
+    hacer, el del lote (que no se usó) va aparte, en `analisis_del_lote_sin_reanalisis`."""
+    for clave, del_lote in resultado.del_lote.items():
+        if clave in datos["analizadas"]:
+            datos["analizadas"][clave]["analisis_del_lote"] = del_lote.a_dict()
+        else:
+            datos.setdefault("analisis_del_lote_sin_reanalisis", {})[clave] = del_lote.a_dict()
+
+
 def _resumen(resultado: Resultado, segundos: float, esperados: dict[str, dict], salida) -> None:
     c = resultado.contadores()
     salida.write(
@@ -165,6 +176,8 @@ def _resumen(resultado: Resultado, segundos: float, esperados: dict[str, dict], 
         )
         if a.sospecha_de_instrucciones:
             linea += "  SOSPECHA_DE_INSTRUCCIONES"
+        if a.sospecha_mecanica:
+            linea += "  SOSPECHA_MECANICA"
         esp = esperados.get(clave)
         if esp and esp.get("esperado") is not None:
             acept = esp.get("aceptable") or [esp["esperado"]]
@@ -228,6 +241,8 @@ def main(
 
     _resumen(resultado, segundos, esperados, salida)
     datos = resultado.a_dict()
+    if args.afinado is not None:
+        _agregar_analisis_del_lote(datos, resultado)
     guardado = True
     destino = args.salida
     reservado = None  # el nombre que reservó `_destino_nuevo`: si no se llega a escribir, no queda un archivo vacío

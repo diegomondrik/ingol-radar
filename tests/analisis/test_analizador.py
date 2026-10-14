@@ -669,5 +669,35 @@ class TestInterrupcion(unittest.TestCase):
         self.assertEqual(len(r.analizadas), 4)
 
 
+class TestIncoherenciaVaAReintento(unittest.TestCase):
+    def test_un_item_que_dice_si_y_en_el_por_que_no_se_reintenta_solo(self):
+        estado = {"n": 0}
+
+        def funcion(items):
+            estado["n"] += 1
+            if estado["n"] == 1:
+                malo = item_valido(items[0]["clave"], mejora_control={"respuesta": "si", "por_que": "No sé si mejora algo."})
+                return {"analisis": [malo] + [item_valido(p["clave"]) for p in items[1:]]}
+            return RunnerFalso.todo_bien(items)
+
+        runner = RunnerFalso(funcion)
+        r = correr(novedades(3), runner)
+        self.assertEqual(set(r.analizadas), {"f:1", "f:2", "f:3"})
+        self.assertEqual(r.reintentos, 1)
+        self.assertEqual(runner.llamadas[1]["claves"], ["f:1"])
+
+    def test_si_sigue_incoherente_queda_sin_analizar_con_el_motivo(self):
+        runner = RunnerFalso(
+            lambda items: {
+                "analisis": [
+                    item_valido(p["clave"], lo_regala_el_proveedor={"respuesta": "no", "por_que": "No está claro."}) for p in items
+                ]
+            }
+        )
+        r = correr([novedad(1)], runner, max_fallas_seguidas=1000)
+        self.assertIn("contradictorio", r.sin_analizar["f:1"])
+        self.assertIn("lo_regala_el_proveedor", r.sin_analizar["f:1"])
+
+
 if __name__ == "__main__":
     unittest.main()

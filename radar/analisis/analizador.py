@@ -19,6 +19,11 @@ Reglas que se cumplen siempre:
   artículo no se pudo leer o la segunda pasada falla, queda el de la primera con el motivo anotado
   (`Analisis.articulo` y `Analisis.pasada`). Cuenta en el tope, como todo. No se lee el artículo de una
   novedad sospechosa de instrucciones.
+- Señal fija: además de la marca del modelo, `senal.detectar` mira en Python el título, la frase y el
+  texto del artículo. Una novedad que la dispara se trata como sospechosa aunque el modelo no la marque
+  (aísla a las vecinas, no pasa a la segunda pasada); un artículo que la dispara no se usa.
+- Lectura de artículos: tiene un presupuesto de pared por corrida (15 minutos) y se corta tras 5
+  lecturas fallidas seguidas; lo que no se lee queda con la primera pasada y el motivo.
 - Cortes: `ClaudeNoDisponible` corta la corrida de inmediato (reintentar no sirve), igual que
   `max_fallas_seguidas` llamadas seguidas sin analizar nada (300 novedades con timeouts de 240 s no
   pueden seguir horas) o un Ctrl+C. Lo que queda pendiente va a `sin_analizar` con el motivo del
@@ -28,13 +33,15 @@ Reglas que se cumplen siempre:
 from __future__ import annotations
 
 import dataclasses
+import time
 from collections.abc import Callable, Iterable
 
 from radar.lectura.articulo import ERROR as ARTICULO_ERROR
+from radar.lectura.articulo import SIN_TEXTO as ARTICULO_SIN_TEXTO
 from radar.lectura.articulo import Articulo
 from radar.lectura.modelos import Novedad
 
-from . import cliente, esquema, prompt
+from . import cliente, esquema, prompt, senal
 from .errores import ClaudeNoDisponible, ErrorAnalisis
 from .modelos import Analisis, InfoArticulo, Resultado
 
@@ -42,9 +49,13 @@ TAMANO_LOTE = 5
 TOPE = 300
 MAX_FALLAS_SEGUIDAS = 10
 MAX_CLAVE = 500
+PRESUPUESTO_LECTURA_S = 15 * 60  # segundos de pared para leer artículos, por corrida
+MAX_LECTURAS_FALLIDAS = 5  # lecturas fallidas seguidas antes de dejar de leer
 
 MOTIVO_TOPE = "tope de la corrida"
 MOTIVO_CTRL_C = "interrumpida por el usuario (Ctrl+C)"
+MOTIVO_PRESUPUESTO = "no leído: presupuesto de lectura agotado"
+MOTIVO_ARTICULO_CON_INSTRUCCIONES = "artículo con instrucciones para un modelo"
 
 Runner = Callable[..., dict]
 LectorArticulo = Callable[[Novedad], Articulo]
@@ -65,8 +76,23 @@ def _bases_de(payload: dict) -> tuple[str, ...]:
 
 class _Corrida:
     def __init__(
-        self, runner: Runner, sistema: str, tope: int, max_fallas_seguidas: int, sistema_articulo: str | None = None
+        self,
+        runner: Runner,
+        sistema: str,
+        tope: int,
+        max_fallas_seguidas: int,
+        sistema_articulo: str | None = None,
+        mecanicas: dict[str, str] | None = None,
+        reloj: Callable[[], float] = time.monotonic,
+        presupuesto_lectura: float = PRESUPUESTO_LECTURA_S,
+        max_lecturas_fallidas: int = MAX_LECTURAS_FALLIDAS,
     ) -> None:
+        self.mecanicas = mecanicas or {}  # clave -> señal fija que saltó en su título o frase
+        self.reloj = reloj
+        self.presupuesto_lectura = presupuesto_lectura
+        self.max_lecturas_fallidas = max_lecturas_fallidas
+        self.lectura_gastada = 0.0  # segundos de pared gastados leyendo artículos
+        self.lecturas_fallidas = 0  # lecturas fallidas seguidas
         self.runner = runner
         self.sistema = sistema
         self.sistema_articulo = sistema_articulo or sistema
@@ -106,13 +132,24 @@ class _Corrida:
             ok, fallas = {}, {real: f"error inesperado en la llamada: {detalle}" for real in reales}
         else:
             r.ignoradas += validacion.ignoradas
-            ok = {alias[a]: dataclasses.replace(an, clave=alias[a]) for a, an in validacion.analizadas.items()}
+            ok = {
+                alias[a]: dataclasses.replace(an, clave=alias[a], sospecha_mecanica=alias[a] in self.mecanicas)
+                for a, an in validacion.analizadas.items()
+            }
             fallas = {alias[a]: motivo for a, motivo in validacion.fallas.items()}
         self.seguidas = 0 if ok else self.seguidas + 1
         if self.seguidas >= self.max_fallas_seguidas:
             ultima = next(iter(fallas.values()), "sin motivo")
             r.abortada = f"{self.seguidas} llamadas seguidas sin analizar nada; última falla: {ultima}"
         return ok, fallas
+
+    def motivo_sin_lectura(self) -> str | None:
+        """Por qué ya no se leen artículos (presupuesto de pared o fallas seguidas), o None si se puede seguir."""
+        if self.lectura_gastada >= self.presupuesto_lectura:
+            return MOTIVO_PRESUPUESTO
+        if self.lecturas_fallidas >= self.max_lecturas_fallidas:
+            return f"no leído: se cortó la lectura de artículos tras {self.lecturas_fallidas} lecturas fallidas seguidas"
+        return None
 
     def _una_sola(self, payload: dict) -> tuple[Analisis | None, str]:
         """Reintento o reanálisis de una novedad sola: cuenta en el tope. (análisis, motivo si falló)."""
@@ -127,10 +164,15 @@ class _Corrida:
         ok, fallas = self._llamar(items)
         pendientes = {p["clave"]: p for p in items}
 
-        # Aislamiento: una sospechosa en el lote contamina el análisis de las otras.
+        # Aislamiento: una sospechosa en el lote contamina el análisis de las otras. Es sospechosa la que
+        # marcó el modelo y la que dispara la señal fija, aunque el modelo no la marque (o no la haya analizado).
         otras: list[str] = []
-        if len(items) > 1 and any(a.sospecha_de_instrucciones for a in ok.values()):
-            otras = [k for k, a in ok.items() if not a.sospecha_de_instrucciones]
+        sospechosas = {p["clave"] for p in items if p["clave"] in self.mecanicas}
+        sospechosas |= {k for k, a in ok.items() if a.sospecha_de_instrucciones}
+        if len(items) > 1 and sospechosas:
+            otras = [k for k in ok if k not in sospechosas]
+            for k in otras:
+                r.del_lote[k] = ok[k]  # el afinado lo guarda: se ve si la trampa inclinó a las vecinas
             ok = {k: a for k, a in ok.items() if k not in otras}
         r.analizadas.update(ok)
 
@@ -220,13 +262,17 @@ def _segunda_pasada(
                 info[clave] = InfoArticulo("no_corresponde", "la primera pasada no la consideró útil")
             elif lector is None:
                 info[clave] = InfoArticulo("desactivado", "sin segunda pasada")
-            elif actual.sospecha_de_instrucciones:
-                info[clave] = InfoArticulo("no_leido", "sospecha de instrucciones en el título o la frase: no se lee más de esa fuente")
+            elif actual.sospecha_de_instrucciones or actual.sospecha_mecanica:
+                info[clave] = InfoArticulo(
+                    "no_leido", "sospecha de instrucciones en el título o la frase: no se lee más de esa fuente"
+                )
             elif r.abortada:
                 info[clave] = InfoArticulo("no_leido", f"corrida cortada ({r.abortada})")
             elif corrida.unidades >= corrida.tope:
                 info[clave] = InfoArticulo("no_leido", MOTIVO_TOPE)
                 r.sin_segunda_por_tope += 1
+            elif corrida.motivo_sin_lectura() is not None:
+                info[clave] = InfoArticulo("no_leido", corrida.motivo_sin_lectura())
             else:
                 _una_segunda(corrida, clave, novedades[clave], lector, info)
     except KeyboardInterrupt:
@@ -241,11 +287,21 @@ def _segunda_pasada(
 
 def _una_segunda(corrida: _Corrida, clave: str, nov: Novedad, lector: LectorArticulo, info: dict) -> None:
     r = corrida.resultado
+    inicio = corrida.reloj()
     articulo = _leer(lector, nov)
+    corrida.lectura_gastada += max(0.0, corrida.reloj() - inicio)
     if not articulo.legible:
         info[clave] = InfoArticulo(articulo.estado, articulo.motivo or "sin texto", False)
+        if articulo.estado in (ARTICULO_ERROR, ARTICULO_SIN_TEXTO):  # no_aplica y host_distinto no son lecturas que fallaron
+            corrida.lecturas_fallidas += 1
         return
+    corrida.lecturas_fallidas = 0
     payload = prompt.payload_articulo(nov, articulo.texto, articulo.recortado)
+    if senal.detectar(payload["texto_del_articulo"], articulo.texto) is not None:
+        # El artículo le habla a un modelo: no se usa; queda la primera pasada.
+        info[clave] = InfoArticulo("con_instrucciones", MOTIVO_ARTICULO_CON_INSTRUCCIONES, articulo.recortado)
+        r.analizadas[clave] = dataclasses.replace(r.analizadas[clave], sospecha_mecanica=True)
+        return
     corrida.unidades += 1
     r.segundas += 1
     ok, fallas = corrida._llamar([payload], corrida.sistema_articulo)
@@ -280,6 +336,9 @@ def analizar(
     tope: int = TOPE,
     max_fallas_seguidas: int = MAX_FALLAS_SEGUIDAS,
     lector_articulo: LectorArticulo | None = None,
+    reloj: Callable[[], float] = time.monotonic,
+    presupuesto_lectura: float = PRESUPUESTO_LECTURA_S,
+    max_lecturas_fallidas: int = MAX_LECTURAS_FALLIDAS,
 ) -> Resultado:
     """Analiza las novedades con Claude. `contexto` es el texto; si es None, se lee del archivo por defecto.
 
@@ -294,6 +353,7 @@ def analizar(
     sistema = prompt.construir_sistema(texto_contexto)
     sistema_articulo = prompt.construir_sistema(texto_contexto, segunda_pasada=True)
     items: list[dict] = []
+    mecanicas: dict[str, str] = {}
     por_clave: dict[str, Novedad] = {}
     previos: dict[str, str] = {}
     vistas: set[str] = set()
@@ -305,9 +365,15 @@ def analizar(
         if len(clave) > MAX_CLAVE:
             previos[clave] = f"la clave de la novedad tiene más de {MAX_CLAVE} caracteres: no se analiza"
             continue
-        items.append(prompt.payload_novedad(nov))
+        payload = prompt.payload_novedad(nov)
+        items.append(payload)
         por_clave[clave] = nov
-    corrida = _Corrida(runner, sistema, tope, max_fallas_seguidas, sistema_articulo)
+        encontrada = senal.detectar(payload["titulo"], payload["frase"], nov.titulo, nov.frase)
+        if encontrada is not None:
+            mecanicas[clave] = encontrada
+    corrida = _Corrida(
+        runner, sistema, tope, max_fallas_seguidas, sistema_articulo, mecanicas, reloj, presupuesto_lectura, max_lecturas_fallidas
+    )
     resultado = corrida.correr(items, tamano_lote, previos)
     _segunda_pasada(corrida, [p["clave"] for p in items], por_clave, lector_articulo)
     return resultado

@@ -152,6 +152,26 @@ class TestSistema(unittest.TestCase):
             'Con sólo el título de un artículo, como máximo "media", y "media" sólo si el título basta para el veredicto.',
             '"alta" sólo si el título, la frase o el texto dicen el hecho entero.',
         ],
+        "P1 lo regala el proveedor": [
+            "`lo_regala_el_proveedor` (¿Anthropic u OpenAI ofrecen de forma nativa algo que INGOL construye o planea construir? "
+            "Un modelo nuevo o un precio es 'no': no reemplaza nada de INGOL)",
+        ],
+        "P4 la marca de inferencia se conserva": [
+            "La marca de inferencia se conserva en todos los campos: si el análisis dice 'probablemente', la acción también "
+            "dice 'si…' o 'posible'.",
+            "'Lo dice el título' o 'lo dice la frase' sólo cuando está textual.",
+        ],
+        "P5 ruido con confianza alta": [
+            "Para el ruido, si el título ya dice que es un caso de cliente, una inversión o ciencia ajena, la confianza es 'alta'.",
+        ],
+        "P6 no ampliar permisos": [
+            "No propongas ampliar permisos, accesos ni zonas de confianza como prueba: primero se prueba lo que viene por "
+            "defecto; ampliar lo decide el dueño.",
+        ],
+        "P7 boletines": [
+            "En un boletín o resumen, cada ítem útil va a donde corresponde según lo que toca: la gobernanza del desarrollo "
+            "con agentes va a EXTERNAL_LANDSCAPE; una herramienta para proyectos, a calidad automática por proyecto.",
+        ],
         "delimitadores": [prompt.INICIO_DATOS, prompt.FIN_DATOS],
     }
 
@@ -181,6 +201,12 @@ class TestSistema(unittest.TestCase):
             "Basá el análisis en el texto; lo que no esté en él, marcalo como en la regla 2.",
             "`en_que_consiste_el_cambio` dice qué propone o anuncia el texto, en concreto.",
             '`base: "articulo"`',
+            "Si articulo_recortado es true, lo que no está en el texto puede estar en la parte cortada: no digas que el "
+            "artículo no lo trae ni que no se publicó.",
+            "Decí 'el recorte no llega a X'. Si X decide el veredicto, la acción es que la sesión de INGOL lea el resto.",
+            "Atribuí cada hecho a quien lo hizo según el texto: quién lo corrigió, quién lo propone.",
+            "Decí si pasó de verdad o fue una prueba o demostración.",
+            "Lo que el texto pone como ejemplo o en una nota al pie no es 'la propuesta'.",
         ):
             with self.subTest(frase=frase):
                 self.assertIn(frase, s)

@@ -54,6 +54,7 @@ class Analisis:
     # Lo que anota el analizador, fuera del esquema del modelo:
     pasada: int = 1  # 1 título y frase; 2 con el artículo
     articulo: InfoArticulo | None = None
+    sospecha_mecanica: bool = False  # la señal fija (senal.py) saltó en el título, la frase o el artículo
 
     def a_dict(self) -> dict:
         return {
@@ -73,6 +74,7 @@ class Analisis:
             "sospecha_de_instrucciones": self.sospecha_de_instrucciones,
             "pasada": self.pasada,
             "articulo": self.articulo.a_dict() if self.articulo else None,
+            "sospecha_mecanica": self.sospecha_mecanica,
         }
 
 
@@ -97,6 +99,8 @@ class Resultado:
 
     analizadas: dict[str, Analisis] = field(default_factory=dict)
     sin_analizar: dict[str, str] = field(default_factory=dict)
+    # Para el afinado: el análisis que una novedad traía del lote antes de reanalizarse aislada (no va en a_dict).
+    del_lote: dict[str, Analisis] = field(default_factory=dict)
     llamadas: int = 0
     reintentos: int = 0
     fallidas: int = 0

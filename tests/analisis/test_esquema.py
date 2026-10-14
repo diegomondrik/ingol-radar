@@ -134,7 +134,7 @@ class TestCaminoFeliz(unittest.TestCase):
         a = validar([item_valido("a")]).analizadas["a"]
         crudo = a.a_dict()
         self.assertEqual((crudo["pasada"], crudo["articulo"]), (1, None))  # los anota el analizador, no el modelo
-        del crudo["pasada"], crudo["articulo"]
+        del crudo["pasada"], crudo["articulo"], crudo["sospecha_mecanica"]
         v2 = validar([crudo])
         self.assertEqual(v2.analizadas["a"], a)
 
@@ -348,6 +348,74 @@ class TestTextosHostiles(unittest.TestCase):
         t = v.analizadas["a"].por_que_sirve_o_no
         self.assertIn("«esto»", t)
         self.assertIn("ñandú", t)
+
+
+class TestCoherenciaMecanica(unittest.TestCase):
+    """Una respuesta que no es «no_se» no puede traer un por_que que empieza diciendo que no se sabe."""
+
+    CAMPOS = ("mejora_control", "mejora_software", "lo_regala_el_proveedor")
+    DICEN_QUE_NO_SE_SABE = (
+        "No sé si lo ofrece el proveedor.",
+        "No se sabe qué hace.",
+        "No está claro que mejore algo.",
+        "No esta claro que mejore algo.",
+        "No se si lo ofrece.",
+        "NO SÉ",
+        "no sé",
+        "  No sé, por el título.",
+        "«No sé» si aplica.",
+        "- No se sabe.",
+        "No se, depende.",
+        "No se.",
+    )
+    NO_LO_DICEN = (
+        "Agrega un control que antes no había.",
+        "No se agrega ningún control nuevo.",
+        "No sembró nada nuevo.",
+        "No cambia lo que sale.",
+        "Por el título, no sé si lo ofrece.",
+        "Sí, y no se sabe todavía el costo.",
+        "Nose",
+    )
+
+    def con(self, campo, respuesta, por_que):
+        return validar([item_valido("a", **{campo: {"respuesta": respuesta, "por_que": por_que}})])
+
+    def test_si_o_no_con_un_por_que_que_dice_que_no_se_sabe_es_invalido(self):
+        for campo in self.CAMPOS:
+            for respuesta in ("si", "no"):
+                for texto in self.DICEN_QUE_NO_SE_SABE:
+                    with self.subTest(campo=campo, respuesta=respuesta, texto=texto):
+                        v = self.con(campo, respuesta, texto)
+                        self.assertIn("a", v.fallas)
+                        self.assertNotIn("a", v.analizadas)
+                        self.assertIn("contradictorio", v.fallas["a"])
+                        self.assertIn(campo, v.fallas["a"])
+
+    def test_con_no_se_el_por_que_puede_decir_que_no_se_sabe(self):
+        for campo in self.CAMPOS:
+            for texto in self.DICEN_QUE_NO_SE_SABE:
+                with self.subTest(campo=campo, texto=texto):
+                    self.assertIn("a", self.con(campo, "no_se", texto).analizadas)
+
+    def test_lo_que_no_empieza_asi_es_valido(self):
+        for campo in self.CAMPOS:
+            for respuesta in ("si", "no", "no_se"):
+                for texto in self.NO_LO_DICEN:
+                    with self.subTest(campo=campo, respuesta=respuesta, texto=texto):
+                        self.assertIn("a", self.con(campo, respuesta, texto).analizadas)
+
+    def test_dice_que_no_se_sabe(self):
+        for texto in self.DICEN_QUE_NO_SE_SABE:
+            self.assertTrue(esquema.dice_que_no_se_sabe(texto), texto)
+        for texto in self.NO_LO_DICEN:
+            self.assertFalse(esquema.dice_que_no_se_sabe(texto), texto)
+
+    def test_un_item_incoherente_no_tumba_a_los_demas_del_lote(self):
+        malo = item_valido("b", mejora_control={"respuesta": "si", "por_que": "No sé si mejora."})
+        v = validar([item_valido("a"), malo, item_valido("c")], claves=("a", "b", "c"))
+        self.assertEqual(set(v.analizadas), {"a", "c"})
+        self.assertEqual(set(v.fallas), {"b"})
 
 
 if __name__ == "__main__":

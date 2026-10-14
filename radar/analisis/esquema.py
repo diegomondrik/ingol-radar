@@ -7,6 +7,7 @@ Un item que no valida deja SU novedad sin analizar; los demás del lote siguen.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
@@ -148,12 +149,25 @@ def _objeto_exacto(valor, campos: frozenset, nombre: str) -> dict:
     return valor
 
 
+# "No sé", "No se sabe", "No está claro" (y sin acento): el por_que dice que no se sabe.
+_DICE_QUE_NO_SE_SABE = re.compile(
+    r"^(?:no sé\b|no se sabe\b|no está claro\b|no esta claro\b|no se si\b|no se(?=\s*(?:[,.;:¡!¿?]|$)))"
+)
+
+
+def dice_que_no_se_sabe(texto: str) -> bool:
+    """True si el texto EMPIEZA diciendo que no se sabe (sin mirar mayúsculas, comillas ni guiones iniciales)."""
+    inicio = re.sub(r"^\W+", "", texto.casefold())
+    return _DICE_QUE_NO_SE_SABE.match(inicio) is not None
+
+
 def _opinion_validada(valor, nombre: str) -> Opinion:
     obj = _objeto_exacto(valor, CAMPOS_OPINION, nombre)
-    return Opinion(
-        _enumerado(obj["respuesta"], TRES, f"{nombre}.respuesta"),
-        _texto_limpio(obj["por_que"], f"{nombre}.por_que"),
-    )
+    respuesta = _enumerado(obj["respuesta"], TRES, f"{nombre}.respuesta")
+    por_que = _texto_limpio(obj["por_que"], f"{nombre}.por_que")
+    if respuesta != "no_se" and dice_que_no_se_sabe(por_que):
+        raise _Invalido(f"{nombre}: la respuesta es '{respuesta}' pero el por_que dice que no se sabe: contradictorio")
+    return Opinion(respuesta, por_que)
 
 
 def validar_item(item, bases_permitidas: tuple[str, ...]) -> Analisis:
