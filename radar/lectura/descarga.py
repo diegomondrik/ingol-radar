@@ -67,6 +67,21 @@ class Plazo:
         return max(0.05, min(TIMEOUT, self.restante()))
 
 
+def host_sin_www(host: str) -> str:
+    """El host en minúscula y sin UN `www.` inicial: `www.anthropic.com` y `anthropic.com` son el mismo sitio."""
+    host = (host or "").lower()
+    return host[4:] if host.startswith("www.") else host
+
+
+def _exigir_mismo_host(url: str, host: str) -> None:
+    try:
+        destino = urlsplit(url).hostname
+    except ValueError as exc:
+        raise ErrorDescarga(f"url ilegible: {url[:200]!r}") from exc
+    if host_sin_www(destino or "") != host_sin_www(host):
+        raise ErrorDescarga(f"el destino sale del sitio {host!r}: {url[:200]!r}")
+
+
 def _exigir_destino(url: str) -> None:
     """Sólo https, sin usuario ni clave, sin puerto 0 y sólo hacia un host de internet pública
     (nada de localhost, IP privadas, link-local, multicast ni NAT64).
@@ -193,18 +208,25 @@ class SoloHttps(urllib.request.HTTPRedirectHandler):
 
     max_redirections = MAX_REDIRECCIONES
 
+    def __init__(self, host: str | None = None) -> None:
+        super().__init__()
+        self.host = host  # si se indica, una redirección sólo puede quedarse en ese sitio
+
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         _exigir_destino(newurl)
+        if self.host is not None:
+            _exigir_mismo_host(newurl, self.host)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-def crear_opener(plazo: Plazo | None = None) -> urllib.request.OpenerDirector:
-    return urllib.request.build_opener(SoloHttps(), ManejadorHttps(plazo or Plazo()))
+def crear_opener(plazo: Plazo | None = None, host: str | None = None) -> urllib.request.OpenerDirector:
+    return urllib.request.build_opener(SoloHttps(host), ManejadorHttps(plazo or Plazo()))
 
 
-def _abrir_real(url: str, plazo: Plazo | None = None):
+def _abrir_real(url: str, plazo: Plazo | None = None, host: str | None = None):
     pedido = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    return crear_opener(plazo).open(pedido, timeout=TIMEOUT)
+    opener = crear_opener(plazo) if host is None else crear_opener(plazo, host)
+    return opener.open(pedido, timeout=TIMEOUT)
 
 
 def leer_cuerpo(respuesta, tope: int = TOPE_BYTES, plazo: float | Plazo = PLAZO_TOTAL, reloj=None) -> bytes:
@@ -247,11 +269,16 @@ def decodificar(cuerpo: bytes, charset: str | None) -> str:
     return cuerpo.decode("utf-8", errors="replace")
 
 
-def descargar(url: str, abrir=None) -> str:
-    """Baja `url` (https) y devuelve el texto, todo dentro de PLAZO_TOTAL. `abrir` permite inyectar una respuesta falsa."""
+def descargar(url: str, abrir=None, host: str | None = None) -> str:
+    """Baja `url` (https) y devuelve el texto, todo dentro de PLAZO_TOTAL. `abrir` permite inyectar una respuesta falsa.
+
+    Con `host`, la url y TODA redirección tienen que quedarse en ese sitio (ver `host_sin_www`).
+    """
     plazo = Plazo()  # la fecha límite se fija al entrar y cubre todo lo que sigue
     _exigir_destino(url)
-    abrir = abrir or partial(_abrir_real, plazo=plazo)
+    if host is not None:
+        _exigir_mismo_host(url, host)
+    abrir = abrir or partial(_abrir_real, plazo=plazo, host=host)
     try:
         respuesta = abrir(url)
         try:
