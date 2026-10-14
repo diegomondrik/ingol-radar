@@ -49,14 +49,25 @@ def normalizar(texto: str) -> str:
     return " ".join(limpio.casefold().split())
 
 
-def detectar(*textos: str) -> str | None:
-    """El nombre de la primera señal que encuentra en alguno de los `textos`, o None."""
+def detectar_frase(*textos: str) -> tuple[str, str] | None:
+    """(nombre de la señal, fragmento del texto normalizado donde saltó) de la primera que encuentra, o None.
+
+    El fragmento empieza en la frase de orden y dura hasta 200 caracteres: quien lo muestra lo limpia y lo acota.
+    """
     for texto in textos:
         forma = normalizar(texto)
         if not forma:
             continue
         for nombre, patron in PATRONES.items():
-            if patron.search(forma):
-                return nombre
+            m = patron.search(forma)
+            if m:
+                inicio = m.start() + len(forma[m.start() : m.end()]) - len(forma[m.start() : m.end()].lstrip(" .!?:;>])\"'«"))
+                return nombre, forma[inicio : inicio + 200]
     return None
+
+
+def detectar(*textos: str) -> str | None:
+    """El nombre de la primera señal que encuentra en alguno de los `textos`, o None."""
+    hallazgo = detectar_frase(*textos)
+    return hallazgo[0] if hallazgo else None
 

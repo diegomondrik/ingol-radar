@@ -28,9 +28,15 @@ class InfoArticulo:
     estado: str
     motivo: str | None = None
     recortado: bool = False
+    instrucciones_detectadas: bool = False  # la señal fija saltó en el texto del artículo (se usó igual, como dato)
 
     def a_dict(self) -> dict:
-        return {"estado": self.estado, "motivo": self.motivo, "recortado": self.recortado}
+        return {
+            "estado": self.estado,
+            "motivo": self.motivo,
+            "recortado": self.recortado,
+            "instrucciones_detectadas": self.instrucciones_detectadas,
+        }
 
 
 @dataclass(frozen=True, slots=True)
