@@ -18,19 +18,22 @@ import unicodedata
 from radar.lectura.limpieza import _invisible
 
 # Cada patrón se aplica al texto normalizado (minúsculas, espacios simples, sin invisibles).
-_INICIO_DE_FRASE = r"(?:^|[.!?:;\n>\]\)\"'«])\s*"
+# Sin límite de palabra al principio: en el pipeline real `limpiar_texto` ya sacó el ESC de una secuencia de
+# terminal y queda su resto (`[0mIgnore...`), y `xignore` / `_ignore` son otra forma de lo mismo. El residuo
+# `[0m` también se tolera antes de `system:` y `assistant:`.
+_INICIO_DE_FRASE = r"(?:^|[.!?:;\n>\]\)\"'«])\s*(?:\[[0-9;?]*[a-z])?\s*"
 
 PATRONES: dict[str, re.Pattern] = {
     nombre: re.compile(patron)
     for nombre, patron in {
-        "ignore previous instructions": r"\bignore\s+(?:(?:all|any|the|your|my|of)\s+)*(?:previous|prior|above|earlier|preceding)\s+(?:instructions?|prompts?|directions?|rules?)",
-        "ignora las instrucciones": r"\bignora(?:r|d)?\s+(?:(?:todas|tus|las|mis|y)\s+)*(?:instrucciones|indicaciones|reglas)",
-        "disregard": r"\bdisregard\s+(?:(?:all|any|the|your|my|of)\s+)*(?:previous|prior|above|earlier|preceding|instructions?|prompts?|rules?|directions?)",
+        "ignore previous instructions": r"ignore\s+(?:(?:all|any|the|your|my|of)\s+)*(?:previous|prior|above|earlier|preceding)\s+(?:instructions?|prompts?|directions?|rules?)",
+        "ignora las instrucciones": r"ignora(?:r|d)?\s+(?:(?:todas|tus|las|mis|y)\s+)*(?:instrucciones|indicaciones|reglas)",
+        "disregard": r"disregard\s+(?:(?:all|any|the|your|my|of)\s+)*(?:previous|prior|above|earlier|preceding|instructions?|prompts?|rules?|directions?)",
         "system:": _INICIO_DE_FRASE + r"system\s*:",
         "assistant:": _INICIO_DE_FRASE + r"assistant\s*:",
-        "you are now": r"\byou\s+are\s+now\s+(?:a|an|the|my|in|dan|acting|playing|no\s+longer|free|going\s+to|to\s+(?:act|ignore|obey|respond|answer|follow))\b",
-        "nuevas instrucciones": r"\bnuevas\s+instrucciones\b",
-        "new instructions": r"\bnew\s+instructions\b",
+        "you are now": r"(?<![a-z])you\s+are\s+now\s+(?:a|an|the|my|in|dan|acting|playing|no\s+longer|free|going\s+to|to\s+(?:act|ignore|obey|respond|answer|follow))\b",
+        "nuevas instrucciones": r"(?<![a-z])nuevas\s+instrucciones\b",
+        "new instructions": r"(?<![a-z])new\s+instructions\b",
         "delimitador del bloque de datos": r"datos_no_confiables",
     }.items()
 }
@@ -38,13 +41,15 @@ PATRONES: dict[str, re.Pattern] = {
 
 # Secuencias de escape de terminal (color, cursor): un modelo las ve como texto raro, no como espacio.
 _SECUENCIA_DE_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+# Lo que queda de un color (`ESC[0m`) cuando `limpiar_texto` ya sacó el ESC: `[0m`, `[1;31m`, `[m`.
+_RESIDUO_DE_COLOR = re.compile(r"\[(?:[0-9]{1,3}(?:;[0-9]{1,3})*)?m")
 
 
 def normalizar(texto: str) -> str:
     """Minúsculas, NFKC, sin invisibles y con los espacios colapsados: la forma sobre la que se busca."""
     if not isinstance(texto, str):
         return ""
-    texto = _SECUENCIA_DE_ESCAPE.sub("", unicodedata.normalize("NFKC", texto))
+    texto = _RESIDUO_DE_COLOR.sub("", _SECUENCIA_DE_ESCAPE.sub("", unicodedata.normalize("NFKC", texto)))
     limpio = "".join(" " if ch.isspace() else ch for ch in texto if ch.isspace() or not _invisible(ch))
     return " ".join(limpio.casefold().split())
 

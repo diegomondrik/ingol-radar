@@ -80,8 +80,8 @@ class TestMismoSitio(unittest.TestCase):
 
     def test_las_versiones_de_github_se_leen_de_su_repositorio(self):
         casos = {
-            "claude-code": ("https://github.com/anthropics/claude-code/releases/tag/v1", "/anthropics/claude-code/"),
-            "codex": ("https://github.com/openai/codex/releases/tag/rust-v0.1", "/openai/codex/"),
+            "claude-code": ("https://github.com/anthropics/claude-code/releases/tag/v1", "/anthropics/claude-code/releases/"),
+            "codex": ("https://github.com/openai/codex/releases/tag/rust-v0.1", "/openai/codex/releases/"),
         }
         for fuente, (enlace, prefijo) in casos.items():
             with self.subTest(fuente):
@@ -99,6 +99,18 @@ class TestMismoSitio(unittest.TestCase):
                 "https://github.com/anthropics/claude-code-evil/releases/tag/v1",  # mismo comienzo, otro repositorio
                 "https://github.com/anthropics/claude-code",  # sin la barra final: es el repositorio, no algo de adentro
                 "https://github.com/anthropics/claude-code/../../evil/repo",
+                "https://github.com/anthropics/claude-code/pull/1234",  # del repositorio, pero no son versiones
+                "https://github.com/anthropics/claude-code/issues/1",
+                "https://github.com/anthropics/claude-code/blob/main/README.md",
+                "https://github.com/anthropics/claude-code/tree/main",
+                "https://github.com/anthropics/claude-code/actions/runs/1",
+                "https://github.com/anthropics/claude-code/releases",  # la lista, sin la barra: no es una nota
+                "https://github.com/anthropics/claude-code/releases/tag/v1%2f..%2fpull%2f1",  # barra escondida
+                "https://github.com/anthropics/claude-code/releases%2f..%2fissues",
+                "https://github.com/anthropics/claude-code/releases/tag/v1%2F..%2Fpull",
+                "https://github.com/anthropics/claude-code/releases/tag/v1%5c..%5cpull",
+                "https://github.com/anthropics/claude-code/releases/tag/v1%5C..%5Cpull",
+                "https://github.com/anthropics/claude-code/releases/%2e%2e/pull/1",
                 "https://github.com/anthropics/claude-code/%2e%2e/evil",
                 "https://github.com/anthropics/claude-code/%252e%252e/evil",
                 "https://github.com/anthropics/claude-code/./../x",
@@ -115,6 +127,12 @@ class TestMismoSitio(unittest.TestCase):
                     a = leer_articulo(novedad(fuente, enlace), f)
                     self.assertEqual(a.estado, "host_distinto")
                     self.assertEqual(f.llamadas, [])
+
+    def test_las_versiones_de_otro_formato_dentro_de_releases_si_se_leen(self):
+        for ruta in ("releases/tag/v1.0.0", "releases/tag/v1.0%2Bbuild", "releases/latest", "releases/download/v1/x.txt"):
+            with self.subTest(ruta):
+                f = FetcherFalso()
+                self.assertEqual(leer_articulo(novedad("claude-code", "https://github.com/anthropics/claude-code/" + ruta), f).estado, "ok")
 
     def test_las_mayusculas_de_la_ruta_no_importan_en_github(self):
         f = FetcherFalso()
@@ -514,6 +532,36 @@ class TestHostil(unittest.TestCase):
         self.assertTrue(r[1])
         self.assertLessEqual(len(r[0]), MAX_ARTICULO)
 
+    def test_cierres_sin_pareja_en_cantidad_no_recorren_la_pila_cada_vez(self):
+        formas = {
+            "article abiertos, main cerrados": "<article>" * 2000 + "</main>" * 140_000,
+            "main abiertos, article cerrados": "<main>" * 2000 + "</article>" * 140_000,
+            "nav abiertos, form cerrados": "<nav>" * 1900 + "</form>" * 140_000,
+            "sin nada abierto": "</main>" * 140_000 + "</article>" * 140_000 + "</nav>" * 140_000,
+            "alternados": ("<article>" * 50 + "</main>" * 3000 + "</article>" * 49) * 40,
+        }
+        for nombre, html in formas.items():
+            with self.subTest(nombre):
+                self.assertGreater(len(html), 900_000 if "alternados" not in nombre else 100_000)
+                self.acotado(html, segundos=5)
+
+    def test_los_cierres_sin_pareja_no_cambian_el_resultado(self):
+        base = f"<article><p>Del article {PARRAFO}</p></article>"
+        sucio = "</main></article></nav></form>" + f"<article><p>Del article {PARRAFO}</p></main></main></article>" + "</main>" * 5
+        self.assertEqual(texto_principal(pagina(base)), texto_principal(pagina(sucio)))
+        con_nav = f"<nav>menú</form></nav><article><p>Del article {PARRAFO}</p></article>"
+        self.assertEqual(texto_principal(pagina(con_nav)), texto_principal(pagina(base)))
+
+    def test_un_cierre_sin_pareja_de_una_descartada_no_cierra_a_otra_abierta(self):
+        h = pagina(f"<nav>MENU <aside>LATERAL</aside></form> MAS-NAV</nav><div><p>Del cuerpo {PARRAFO}</p></div>")
+        texto, _ = texto_principal(h)
+        self.assertNotIn("MAS-NAV", texto)
+        self.assertNotIn("MENU", texto)
+        self.assertIn("Del cuerpo", texto)
+        h = pagina(f"<article><p>Uno {PARRAFO}</p></main><p>Dos {PARRAFO}</p></article>")
+        texto, _ = texto_principal(h)
+        self.assertIn("Dos", texto)  # el </main> sin pareja no cerró el article
+
     def test_leer_articulo_con_una_pagina_hostil_no_lanza(self):
         for html in ("<nav>" * 400_000, "<!--" * 300_000, "\x00" * 100_000):
             a = leer_articulo(novedad(), FetcherFalso(html))
@@ -654,6 +702,14 @@ class TestRedireccionFueraDelSitio(unittest.TestCase):
         self.assertTrue(bajo("/openai/codex/releases", "/openai/codex/"))
         self.assertTrue(bajo("/OpenAI/CODEX/x", "/openai/codex/"))
         self.assertTrue(bajo("/openai/codex/a%20b", "/openai/codex/"))
+        self.assertTrue(bajo("/openai/codex/releases/tag/v1%2Bx", "/openai/codex/releases/"))
+        for ruta in ("/openai/codex/a%2fb", "/openai/codex/a%2Fb", "/openai/codex/a%5cb", "/openai/codex/a%5Cb",
+                     "/openai/codex/%2f", "/openai/codex/releases%2f..%2fx"):  # fmt: skip
+            with self.subTest(ruta):
+                self.assertFalse(bajo(ruta, "/openai/codex/"))
+        self.assertFalse(bajo("/openai/codex/pull/1", "/openai/codex/releases/"))
+        self.assertFalse(bajo("/%6fpenai/codex/x", "/openai/codex/"))  # se compara la ruta cruda
+        self.assertFalse(bajo("/openai/codex/a%2541", "/openai/codex/"))  # doble escape
         for ruta in ("/", "", "/openai/codex", "/openai/codexx/", "/openai/codex/..", "/openai/codex/../x", "/openai/codex/./x",
                      "/openai/codex/%2e%2e/x", "/openai/codex/%252e%252e/x", "/openai/codex/a%5c..%5cx", "/openai/codex/a%00b",
                      "/openai/codex/" + profundo("..") + "/x"):  # fmt: skip

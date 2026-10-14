@@ -21,6 +21,7 @@ from __future__ import annotations
 import codecs
 import http.client
 import io
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -86,24 +87,22 @@ def _puerto_escrito(netloc: str) -> str:
 def ruta_bajo_prefijo(ruta: str, prefijo: str) -> bool:
     """True si `ruta` (la parte de ruta de una url) está debajo de `prefijo` (por ejemplo `/openai/codex/`).
 
-    Se decide sobre la ruta ya des-escapada (hasta que no cambie) y sin `.` ni `..` ni barras
-    invertidas: `/openai/codex/../evil` y `/openai/%2e%2e/evil` no están debajo. Sin distinguir
-    mayúsculas (GitHub no las distingue).
+    El prefijo se compara sobre la ruta CRUDA (sin des-escapar), sin distinguir mayúsculas (GitHub no las
+    distingue). Se rechaza una ruta con `%2f` o `%5c` (una barra o una barra invertida escondidas), con doble
+    escape (lo que se des-escapa una vez y vuelve a cambiar) y, ya des-escapada una vez, con `.` o `..` como
+    segmento, barras invertidas o NUL: `/openai/codex/../evil` y `/openai/codex/%2e%2e/evil` no están debajo.
     """
-    actual = ruta
-    for _ in range(4):
-        siguiente = urllib.parse.unquote(actual)
-        if siguiente == actual:
-            break
-        actual = siguiente
-    else:
+    if re.search("%(?:2f|5c)", ruta, re.IGNORECASE):
+        return False
+    actual = urllib.parse.unquote(ruta)
+    if urllib.parse.unquote(actual) != actual:
         return False
     if "\\" in actual or "\x00" in actual:
         return False
     segmentos = actual.split("/")
     if any(seg in (".", "..") for seg in segmentos):
         return False
-    return actual.lower().startswith(prefijo.lower())
+    return ruta.lower().startswith(prefijo.lower())
 
 
 def _exigir_mismo_host(url: str, host: str, prefijo: str | None = None) -> None:

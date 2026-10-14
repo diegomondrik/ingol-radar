@@ -112,6 +112,9 @@ class _Principal(HTMLParser):
         self._abiertas: list[str] = []  # pila de etiquetas descartadas abiertas
         self._contenedores: list[tuple[str, _Candidato | None]] = []  # `<article>`/`<main>` abiertos
         self._activos: list[_Candidato] = []  # los de arriba que se están siguiendo (a lo sumo MAX_CONTENEDORES)
+        # Cuántas etiquetas de cada nombre hay abiertas en las dos pilas: un cierre sin pareja se ignora en O(1)
+        # (sin esto, `</main>` repetido cientos de miles de veces recorre la pila entera cada vez).
+        self._cuenta: dict[str, int] = {"article": 0, "main": 0, **{t: 0 for t in _DESCARTADAS}}
 
     def _agregar(self, texto: str) -> None:
         if self._total >= TOPE_TOTAL:
@@ -123,13 +126,22 @@ class _Principal(HTMLParser):
                 candidato.pedazos.append(texto)
                 candidato.n += len(texto)
 
+    def _cerrar_descartada(self, tag: str) -> None:
+        """Cierra la etiqueta descartada `tag` (hay una abierta) y todo lo que tenía adentro sin cerrar."""
+        while self._abiertas:
+            abierta = self._abiertas.pop()
+            self._cuenta[abierta] -= 1
+            if abierta == tag:
+                break
+
     def handle_starttag(self, tag, attrs):
-        if tag == "body" and "head" in self._abiertas:  # un <head> que nunca se cerró no se come el cuerpo
-            del self._abiertas[len(self._abiertas) - 1 - self._abiertas[::-1].index("head") :]
+        if tag == "body" and self._cuenta["head"] > 0:  # un <head> que nunca se cerró no se come el cuerpo
+            self._cerrar_descartada("head")
         if tag in _DESCARTADAS:
             if len(self._abiertas) >= MAX_ANIDAMIENTO:
                 raise DocumentoRechazado("demasiadas etiquetas descartadas sin cerrar")
             self._abiertas.append(tag)
+            self._cuenta[tag] += 1
             return
         if tag in ("article", "main") and not self._abiertas:
             candidato = None
@@ -139,6 +151,7 @@ class _Principal(HTMLParser):
                 self._activos.append(candidato)
             if len(self._contenedores) < MAX_ANIDAMIENTO:
                 self._contenedores.append((tag, candidato))
+                self._cuenta[tag] += 1
             elif candidato is not None:  # no hay lugar para recordarlo abierto: se cierra ya
                 self._activos.pop()
         if tag in _BLOQUES:
@@ -151,14 +164,16 @@ class _Principal(HTMLParser):
 
     def handle_endtag(self, tag):
         if tag in _DESCARTADAS:
-            if tag in self._abiertas:
-                while self._abiertas and self._abiertas.pop() != tag:
-                    pass
+            if self._cuenta[tag] > 0:
+                self._cerrar_descartada(tag)
             return
-        if tag in ("article", "main") and not self._abiertas:
+        if tag in ("article", "main") and not self._abiertas and self._cuenta[tag] > 0:
             for i in range(len(self._contenedores) - 1, -1, -1):
                 if self._contenedores[i][0] == tag:
-                    cerrados = sum(1 for _, c in self._contenedores[i:] if c is not None)
+                    cerrados = 0
+                    for t, c in self._contenedores[i:]:
+                        self._cuenta[t] -= 1
+                        cerrados += c is not None
                     del self._contenedores[i:]
                     if cerrados:
                         del self._activos[len(self._activos) - cerrados :]
@@ -242,14 +257,15 @@ def texto_principal(html: str) -> tuple[str, bool]:
 
 
 def prefijo_de_ruta(fuente) -> str | None:
-    """Para una fuente de github.com, la ruta de su repositorio (`/openai/codex/`): el artículo y toda
-    redirección tienen que estar debajo. github.com aloja miles de proyectos ajenos; el mismo host no basta.
+    """Para una fuente de github.com, la ruta de las versiones de su repositorio (`/openai/codex/releases/`):
+    el artículo y toda redirección tienen que estar debajo. github.com aloja miles de proyectos ajenos y el
+    resto de un repositorio (`/pull/`, `/issues/`, `/blob/`) no es una nota de versión; el mismo host no basta.
     Para las demás fuentes, None."""
     partes = urlsplit(fuente.url)
     if host_sin_www(partes.hostname or "") != "github.com":
         return None
     segmentos = [x for x in partes.path.split("/") if x]
-    return "/" + "/".join(segmentos[:2]) + "/" if len(segmentos) >= 2 else None
+    return "/" + "/".join(segmentos[:2]) + "/releases/" if len(segmentos) >= 2 else None
 
 
 def _enlace_https_del_sitio(novedad: Novedad, fuente) -> tuple[str | None, str | None]:

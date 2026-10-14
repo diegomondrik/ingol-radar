@@ -91,8 +91,9 @@ def frase_detectada(fragmento: str) -> str:
     """El fragmento que la señal fija detectó, listo para ir como DATO en el bloque de datos: limpio, de a lo sumo
     80 caracteres y sin comillas, «», etiquetas, saltos ni el nombre de los delimitadores."""
     texto = limpiar_texto(fragmento, 400)
-    texto = re.sub("datos_no_confiables", "(delimitador del bloque)", texto, flags=re.IGNORECASE)
     texto = "".join(" " if c.isspace() else c for c in texto if c not in "<>«»\"'`\\{}[]")
+    # Después de quitar los caracteres de arriba: `datos_no_"confiables` se vuelve el nombre y se reemplaza.
+    texto = re.sub("datos_no_confiables", "(delimitador del bloque)", texto, flags=re.IGNORECASE)
     return " ".join(texto.split())[:80].strip()
 
 
