@@ -5,13 +5,14 @@ from __future__ import annotations
 import json
 import shutil
 import tempfile
+import threading
 import unittest
 from datetime import timedelta
 from pathlib import Path
 from unittest import mock
 
 from radar.pagina import construir, escribir_resumen
-from radar.pagina import escritura
+from radar.pagina import escribir_volcado, escritura
 
 from .ayudas import AHORA, analisis, corrida_de, corrida_hostil, novedad
 
@@ -128,6 +129,103 @@ class TestFallas(Base):
         with self.assertRaises(OSError):
             escribir_resumen(self.carpeta, AHORA, "<p/>", "{}\n")
         self.assertEqual(self.carpeta.read_text(encoding="utf-8"), "no soy una carpeta")
+
+
+class TestDetallesDeLaEscritura(Base):
+    def test_cada_archivo_se_sincroniza_con_el_disco_una_vez(self):
+        with mock.patch.object(escritura.os, "fsync", wraps=escritura.os.fsync) as fsync:
+            escribir_resumen(self.carpeta, AHORA, self.pagina.html, self.pagina.json)
+        self.assertEqual(fsync.call_count, 2)  # el JSON y la página, una vez cada uno
+
+    def test_el_temporal_se_crea_en_la_carpeta_del_destino(self):
+        # Para que el reemplazo sea atómico el temporal tiene que estar en el mismo disco que el destino.
+        carpetas = []
+        real = escritura.tempfile.mkstemp
+
+        def mkstemp(*args, **kwargs):
+            carpetas.append(Path(kwargs["dir"]))
+            return real(*args, **kwargs)
+
+        with mock.patch.object(escritura.tempfile, "mkstemp", mkstemp):
+            escribir_resumen(self.carpeta, AHORA, self.pagina.html, self.pagina.json)
+        self.assertEqual(carpetas, [self.carpeta, self.carpeta])
+
+    def test_el_json_puede_armarse_con_el_nombre_de_la_pagina_reservada(self):
+        recibidos = []
+
+        def armar(nombre_html: str) -> str:
+            recibidos.append(nombre_html)
+            return json.dumps({"pagina": nombre_html}) + "\n"
+
+        primera = escribir_resumen(self.carpeta, AHORA, "<p/>", armar)
+        segunda = escribir_resumen(self.carpeta, AHORA, "<p/>", armar)
+        self.assertEqual(recibidos, [primera[0].name, segunda[0].name])
+        self.assertEqual(json.loads(segunda[1].read_text(encoding="utf-8"))["pagina"], "resumen-2026-10-14_120000-2.html")
+
+    def test_si_la_funcion_que_arma_el_json_falla_no_queda_nada(self):
+        def armar(_nombre):
+            raise ValueError("no se pudo armar")
+
+        with self.assertRaises(ValueError):
+            escribir_resumen(self.carpeta, AHORA, "<p/>", armar)
+        self.assertEqual(self.archivos(), [])
+
+
+class TestConcurrencia(Base):
+    def test_ocho_hilos_con_la_misma_hora_obtienen_ocho_pares_completos(self):
+        hilos_n = 8
+        barrera = threading.Barrier(hilos_n)
+        resultados: list[tuple[Path, Path]] = [None] * hilos_n  # type: ignore[list-item]
+        errores: list[BaseException] = []
+
+        def escribir(i: int) -> None:
+            try:
+                barrera.wait(timeout=10)
+                resultados[i] = escribir_resumen(self.carpeta, AHORA, f"<p>pagina {i}</p>", json.dumps({"i": i}) + "\n")
+            except BaseException as exc:  # noqa: BLE001 - se junta para fallar en el hilo principal
+                errores.append(exc)
+
+        hilos = [threading.Thread(target=escribir, args=(i,)) for i in range(hilos_n)]
+        for h in hilos:
+            h.start()
+        for h in hilos:
+            h.join(timeout=30)
+        self.assertEqual(errores, [])
+        self.assertEqual(len({r[0].name for r in resultados}), hilos_n)  # ocho nombres distintos
+        self.assertEqual(len({r[1].name for r in resultados}), hilos_n)
+        self.assertEqual(len(self.archivos()), 2 * hilos_n)  # y ni un archivo de más (ni temporales)
+        for i, (ruta_html, ruta_json) in enumerate(resultados):
+            self.assertEqual(ruta_html.read_text(encoding="utf-8"), f"<p>pagina {i}</p>")  # cada página con su JSON
+            self.assertEqual(json.loads(ruta_json.read_text(encoding="utf-8")), {"i": i})
+            self.assertEqual(ruta_html.stem, ruta_json.stem)
+
+
+class TestVolcado(Base):
+    def test_el_volcado_se_guarda_sin_pisar(self):
+        primero = escribir_volcado([self.carpeta], AHORA, "{}\n")
+        segundo = escribir_volcado([self.carpeta], AHORA, '{"n": 2}\n')
+        self.assertEqual((primero.name, segundo.name), ("volcado-2026-10-14_120000.json", "volcado-2026-10-14_120000-2.json"))
+        self.assertEqual(primero.read_text(encoding="utf-8"), "{}\n")
+
+    def test_si_la_primera_carpeta_no_sirve_va_a_la_siguiente(self):
+        archivo = self.dir / "archivo"
+        archivo.write_text("no soy una carpeta", encoding="utf-8")
+        ruta = escribir_volcado([archivo, self.dir / "segunda"], AHORA, "{}\n")
+        self.assertEqual(ruta.parent, self.dir / "segunda")
+
+    def test_si_ninguna_sirve_es_un_error_claro_y_no_queda_nada(self):
+        archivo = self.dir / "archivo"
+        archivo.write_text("no soy una carpeta", encoding="utf-8")
+        with self.assertRaises(OSError):
+            escribir_volcado([archivo], AHORA, "{}\n")
+        with self.assertRaises(OSError):
+            escribir_volcado([], AHORA, "{}\n")
+
+    def test_una_falla_al_escribir_no_deja_un_archivo_vacio(self):
+        with mock.patch.object(escritura.os, "replace", side_effect=OSError("disco lleno")):
+            with self.assertRaises(OSError):
+                escribir_volcado([self.carpeta], AHORA, "{}\n")
+        self.assertEqual(self.archivos(), [])
 
 
 class TestFormato(Base):

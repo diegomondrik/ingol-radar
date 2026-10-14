@@ -66,6 +66,18 @@ def ordenar(novedades: Mapping[str, Novedad], analizadas: Mapping[str, Analisis]
     return [Entrada(i, nov, an) for i, (nov, an) in enumerate(pares, 1)]
 
 
+def articulo_pendiente(analisis: Analisis) -> bool:
+    """Una novedad que importa (sí o tal vez) a la que no se le leyó el artículo porque la corrida se cortó o llegó al
+    tope: se muestra en la página, pero no se marca como vista, así vuelve a salir para el análisis completo.
+
+    Una novedad sospechosa de instrucciones no cuenta: su artículo no se lee nunca, y repetirla no arregla nada.
+    """
+    info = analisis.articulo
+    if info is None or info.estado != "no_leido" or analisis.sirve not in ("si", "tal_vez"):
+        return False
+    return not (analisis.sospecha_de_instrucciones or analisis.sospecha_mecanica)
+
+
 def sospecha_de(analisis: Analisis) -> str | None:
     """Qué aviso lleva una novedad: fuerte (título o frase), suave (sólo el artículo) o ninguno.
 

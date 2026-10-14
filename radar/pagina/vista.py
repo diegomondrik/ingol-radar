@@ -22,7 +22,17 @@ from radar.lectura.modelos import Cobertura, Novedad
 
 from .enlaces import ancla, enlace_seguro
 from .estilo import CSP, ESTILO, LOGO
-from .orden import GRUPOS, SOSPECHA_FUERTE, SOSPECHA_SUAVE, VEREDICTO_JSON, Entrada, grupo_de, ordenar, sospecha_de
+from .orden import (
+    GRUPOS,
+    SOSPECHA_FUERTE,
+    SOSPECHA_SUAVE,
+    VEREDICTO_JSON,
+    Entrada,
+    articulo_pendiente,
+    grupo_de,
+    ordenar,
+    sospecha_de,
+)
 from .texto import e, plano
 
 TITULO = "Radar de novedades para INGOL"
@@ -85,9 +95,19 @@ class Corrida:
 @dataclass(frozen=True)
 class Pagina:
     html: str
-    json: str
+    datos: dict  # el JSON compañero, sin serializar
     entradas: tuple[Entrada, ...]
     conteos: dict[str, int]
+
+    def json_para(self, nombre_html: str | None) -> str:
+        """El JSON compañero, con el nombre del `.html` que acompaña (el de la reserva hecha al escribir)."""
+        datos = {**self.datos, "pagina": plano(nombre_html, 255) if nombre_html is not None else None}
+        return json.dumps(datos, ensure_ascii=False, indent=2) + "\n"
+
+    @property
+    def json(self) -> str:
+        """El JSON compañero sin nombre de página (para quien aún no escribió el archivo)."""
+        return self.json_para(None)
 
 
 # ----------------------------------------------------------------------------- utilidades
@@ -149,7 +169,8 @@ def _aviso_de_articulo(analisis: Analisis) -> str:
         return ""
     prefijo = _ESTADO_ARTICULO.get(info.estado) or "No se pudo leer el artículo"
     motivo = e(info.motivo, 400) if info.motivo else "sin detalle"
-    return f'<p class="nota gris">{prefijo}: {motivo}</p>'
+    repetida = " — vuelve a salir en la próxima corrida para leer el artículo." if articulo_pendiente(analisis) else ""
+    return f'<p class="nota gris">{prefijo}: {motivo}{repetida}</p>'
 
 
 def _base(analisis: Analisis) -> str:
@@ -222,7 +243,7 @@ def _linea_de_ruido(entrada: Entrada, corrida: Corrida) -> str:
 # ----------------------------------------------------------------------------- secciones
 
 
-def _conteos(corrida: Corrida, entradas: list[Entrada]) -> dict[str, int]:
+def _conteos(corrida: Corrida, entradas: list[Entrada], sin_analizar: dict[str, str]) -> dict[str, int]:
     """Los números de la corrida, los mismos en la página, en el JSON y en lo que imprime el comando."""
     por_grupo = {g: sum(1 for x in entradas if grupo_de(x.analisis) == g) for g in GRUPOS}
     return {
@@ -233,7 +254,8 @@ def _conteos(corrida: Corrida, entradas: list[Entrada]) -> dict[str, int]:
         "tal_vez": por_grupo["tal_vez"],
         "otras": por_grupo["otras"],
         "ruido": por_grupo["ruido"],
-        "sin_analizar": len(_sin_analizar(corrida)),
+        "sin_analizar": len(sin_analizar),
+        "articulo_pendiente": sum(1 for x in entradas if articulo_pendiente(x.analisis)),
     }
 
 
@@ -321,8 +343,7 @@ def _tabla_cobertura(corrida: Corrida) -> str:
     )
 
 
-def _seccion_sin_analizar(corrida: Corrida) -> str:
-    motivos = _sin_analizar(corrida)
+def _seccion_sin_analizar(corrida: Corrida, motivos: dict[str, str]) -> str:
     if not motivos:
         return ""
     por_clave = _por_clave(corrida)
@@ -401,7 +422,7 @@ def _como_marcar(corrida: Corrida, hay: bool) -> str:
     )
 
 
-def _cuerpo_de_novedades(corrida: Corrida, entradas: list[Entrada]) -> str:
+def _cuerpo_de_novedades(corrida: Corrida, entradas: list[Entrada], hay_sin_analizar: bool) -> str:
     if corrida.idea is not None:
         texto = e(corrida.idea, 1500)
         return f'<section><h2>La idea</h2><p class="idea">{texto}</p></section>' + "".join(
@@ -429,7 +450,7 @@ def _cuerpo_de_novedades(corrida: Corrida, entradas: list[Entrada]) -> str:
             + "</section>"
         )
     if not (sirven or tal_vez or otras):
-        partes.append(_vacio(corrida, bool(ruido)))
+        partes.append(_vacio(corrida, bool(ruido), hay_sin_analizar))
     if ruido:
         partes.append(
             f'<section><details><summary>Ruido ({e(len(ruido))}): las que no sirven</summary><div class="in">'
@@ -439,14 +460,14 @@ def _cuerpo_de_novedades(corrida: Corrida, entradas: list[Entrada]) -> str:
     return "".join(partes)
 
 
-def _vacio(corrida: Corrida, hay_ruido: bool) -> str:
+def _vacio(corrida: Corrida, hay_ruido: bool, hay_sin_analizar: bool) -> str:
     if corrida.cobertura and all(c.estado == "error" for c in corrida.cobertura.values()):
         texto = "No se pudo leer ninguna fuente: no hay novedades porque falló la lectura, no porque no haya nada nuevo."
     elif corrida.leidas == 0 and not corrida.nuevas:
         texto = "No hay novedades: ninguna fuente trajo algo dentro de la ventana."
     elif not corrida.nuevas:
         texto = "No hay novedades nuevas: todo lo que se leyó ya se había visto en corridas anteriores."
-    elif _sin_analizar(corrida) and not hay_ruido:
+    elif hay_sin_analizar and not hay_ruido:
         texto = "Ninguna novedad quedó analizada en esta corrida; mirá abajo por qué."
     else:
         texto = "Ninguna novedad de esta corrida le sirve a INGOL."
@@ -467,7 +488,7 @@ def _limpio(valor):
     return valor
 
 
-def _datos_json(corrida: Corrida, entradas: list[Entrada], conteos: dict[str, int]) -> dict:
+def _datos_json(corrida: Corrida, entradas: list[Entrada], conteos: dict[str, int], motivos: dict[str, str]) -> dict:
     """El registro que una sesión lee cuando el owner dice «sí a la 2»: la misma numeración que la página."""
     novedades = []
     for x in entradas:
@@ -488,7 +509,7 @@ def _datos_json(corrida: Corrida, entradas: list[Entrada], conteos: dict[str, in
         )
     por_clave = _por_clave(corrida)
     sin_analizar = []
-    for clave, motivo in _sin_analizar(corrida).items():
+    for clave, motivo in motivos.items():
         nov = por_clave.get(clave)
         sin_analizar.append(
             {
@@ -504,6 +525,8 @@ def _datos_json(corrida: Corrida, entradas: list[Entrada], conteos: dict[str, in
         ventana = {"desde": corrida.desde.isoformat(), "hasta": corrida.hasta.isoformat()}
     datos = {
         "version": VERSION_JSON,
+        "tipo": "idea" if corrida.idea is not None else "resumen",
+        "pagina": None,  # el nombre del .html se conoce recién al reservarlo: `Pagina.json_para` lo completa
         "aviso": AVISO_JSON,
         "generado": corrida.generado.astimezone(timezone.utc).isoformat(),
         "idea": corrida.idea,
@@ -526,14 +549,15 @@ def _datos_json(corrida: Corrida, entradas: list[Entrada], conteos: dict[str, in
 def construir(corrida: Corrida) -> Pagina:
     """La página, su JSON compañero y las entradas numeradas (la misma numeración en los dos)."""
     entradas = ordenar(_por_clave(corrida), corrida.resultado.analizadas)
-    conteos = _conteos(corrida, entradas)
+    motivos = _sin_analizar(corrida)
+    conteos = _conteos(corrida, entradas, motivos)
     cuerpo = (
         _encabezado(corrida)
         + _kpis(corrida, conteos)
         + _como_marcar(corrida, any(grupo_de(x.analisis) != "ruido" for x in entradas))
         + _avisos(corrida)
-        + _cuerpo_de_novedades(corrida, entradas)
-        + _seccion_sin_analizar(corrida)
+        + _cuerpo_de_novedades(corrida, entradas, bool(motivos))
+        + _seccion_sin_analizar(corrida, motivos)
         + _tabla_cobertura(corrida)
         + "<section>"
         + _detalles_tecnicos(corrida)
@@ -548,5 +572,4 @@ def construir(corrida: Corrida) -> Pagina:
         '<meta name="referrer" content="no-referrer">\n'
         f"<title>{e(_titulo(corrida))}</title>\n<style>{ESTILO}</style>\n</head>\n<body>\n{cuerpo}\n</body>\n</html>\n"
     )
-    datos = json.dumps(_datos_json(corrida, entradas, conteos), ensure_ascii=False, indent=2) + "\n"
-    return Pagina(pagina, datos, tuple(entradas), conteos)
+    return Pagina(pagina, _datos_json(corrida, entradas, conteos, motivos), tuple(entradas), conteos)

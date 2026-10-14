@@ -7,11 +7,17 @@ tocar la memoria.
 
 Orden (no se cambia): abrir la memoria (si está ocupada, se corta antes de bajar nada) -> leer las fuentes ->
 descartar lo ya visto -> analizar -> armar y escribir la página y el JSON -> RECIÉN ENTONCES marcar como visto lo
-analizado -> guardar la memoria. Así una página que no se pudo escribir no esconde novedades: todo lo que no
-quedó en una página vuelve a salir como nuevo.
+analizado y guardar la memoria -> informar por pantalla. Así una página que no se pudo escribir no esconde
+novedades (todo lo que no quedó en una página vuelve a salir como nuevo), y una pantalla rota no deshace lo hecho.
+Lo analizado pero con el artículo sin leer por un corte o por el tope (`articulo_pendiente`) sale en la página y NO
+se marca: vuelve a salir en la próxima corrida para el análisis completo.
 
-Código de salida: 0 todo analizado; 2 alguna novedad quedó sin analizar; 1 error, corrida cortada, fuentes
-ilegibles o memoria sin guardar. (Un argumento mal puesto lo corta `argparse` con 2, como en todo programa.)
+Si no se puede escribir la página, lo analizado (que costó cuota) se guarda aparte en `volcado-<marca>.json` y, si
+tampoco se puede, se imprime.
+
+Código de salida: 0 todo analizado; 2 alguna novedad quedó sin analizar o sin leer su artículo; 1 error, corrida
+cortada, fuentes ilegibles o memoria sin guardar. (Un argumento mal puesto lo corta `argparse` con 2, como en todo
+programa.)
 """
 
 from __future__ import annotations
@@ -21,6 +27,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -31,11 +38,27 @@ from radar.lectura.descarga import descargar
 from radar.lectura.fuentes import FUENTES
 from radar.lectura.lector import DIAS_POR_DEFECTO, leer, ventana
 from radar.memoria import RUTA_POR_DEFECTO, Memoria, MemoriaError
-from radar.pagina import Corrida, escribir_resumen
-from radar.pagina.vista import construir
+from radar.pagina import Corrida, construir, escribir_resumen, escribir_volcado
+from radar.pagina.orden import articulo_pendiente
 
 CARPETA_POR_DEFECTO = RAIZ / "generated" / "resumenes"
 _FECHA = re.compile(r"\d{4}-\d{2}-\d{2}", re.ASCII)
+
+
+class _SalidaSegura:
+    """La salida de la corrida: si escribir falla (tubería cerrada, consola que no codifica), la corrida sigue.
+
+    Lo importante ya está en disco; una pantalla rota no puede deshacerlo ni impedir marcar la memoria.
+    """
+
+    def __init__(self, salida) -> None:
+        self._salida = salida
+
+    def write(self, texto: str) -> None:
+        try:
+            self._salida.write(texto)
+        except (OSError, ValueError):  # ValueError incluye UnicodeError y «archivo cerrado»
+            pass
 
 
 def _fecha(valor: str) -> date:
@@ -58,22 +81,43 @@ def _exigir_claude() -> None:
     cliente.localizar_claude(os.environ)
 
 
+def _volcar(corrida: Corrida, nuevas: list, carpeta: Path, salida, motivo: BaseException) -> None:
+    """Pone a salvo lo analizado cuando no se pudo escribir la página. Nunca lanza.
+
+    Primero a un archivo (en la carpeta de destino o, si no se puede, en la carpeta temporal del sistema), con
+    escritura atómica y sin pisar nada; sólo si eso falla, a la pantalla. ASCII puro: pase lo que pase con los textos
+    o con la consola, se puede escribir.
+    """
+    try:
+        volcado = {
+            "motivo": f"{type(motivo).__name__}: {motivo}",
+            "novedades": [n.a_dict() for n in nuevas],
+            **corrida.resultado.a_dict(),
+        }
+        texto = json.dumps(volcado, ensure_ascii=True, indent=2) + "\n"
+        try:
+            ruta = escribir_volcado((carpeta, Path(tempfile.gettempdir())), corrida.generado, texto)
+        except (Exception, KeyboardInterrupt) as exc:  # noqa: BLE001 - frontera: último recurso, la pantalla
+            salida.write(f"No se pudo guardar el volcado en un archivo ({type(exc).__name__}: {exc}); va completo acá abajo.\n")
+            salida.write(texto)
+        else:
+            salida.write(f"El resultado completo quedó guardado en {ruta}\n")
+    except (Exception, KeyboardInterrupt) as exc:  # noqa: BLE001 - un volcado que falla no puede tirar la corrida
+        salida.write(f"No se pudo volcar el resultado ({type(exc).__name__}).\n")
+
+
 def _publicar(corrida: Corrida, carpeta: Path, prefijo: str, nuevas: list, salida):
     """Arma y escribe la página y el JSON. Devuelve (página, ruta de la página, ruta del JSON) o None si falló.
 
-    Si falla (o se corta con Ctrl+C) no queda nada a medias (lo garantiza `escribir_resumen`) y lo analizado, que
-    costó cuota, se vuelca completo a la salida para no perderlo. Quien llama no marca nada como visto.
+    Si falla (o se corta con Ctrl+C) no queda nada a medias (lo garantiza `escribir_resumen`), se vuelca lo analizado
+    (`_volcar`) y quien llama no marca nada como visto.
     """
     try:
         pagina = construir(corrida)
-        ruta_html, ruta_json = escribir_resumen(carpeta, corrida.generado, pagina.html, pagina.json, prefijo)
+        ruta_html, ruta_json = escribir_resumen(carpeta, corrida.generado, pagina.html, pagina.json_para, prefijo)
     except (Exception, KeyboardInterrupt) as exc:  # noqa: BLE001 - frontera: lo analizado no se tira por un fallo al escribir
-        salida.write(
-            f"NO SE PUDO ESCRIBIR la página ({type(exc).__name__}: {exc}). No se marcó nada como visto; "
-            "el resultado completo va acá abajo.\n"
-        )
-        volcado = {"novedades": [n.a_dict() for n in nuevas], **corrida.resultado.a_dict()}
-        salida.write(json.dumps(volcado, ensure_ascii=False, indent=2) + "\n")
+        salida.write(f"NO SE PUDO ESCRIBIR la página ({type(exc).__name__}: {exc}). No se marcó nada como visto.\n")
+        _volcar(corrida, nuevas, carpeta, salida, exc)
         return None
     return pagina, ruta_html, ruta_json
 
@@ -88,6 +132,10 @@ def _informar(pagina, ruta_html: Path, ruta_json: Path, resultado: Resultado, co
     salida.write(
         f"sirven: {c['sirven']}  tal vez: {c['tal_vez']}  ruido: {c['ruido']}  sin analizar: {c['sin_analizar']}\n"
     )
+    if c["articulo_pendiente"]:
+        salida.write(
+            f"{c['articulo_pendiente']} sin leer su artículo: salen en la página, pero vuelven a salir en la próxima corrida.\n"
+        )
     if resultado.abortada:
         salida.write(f"LA CORRIDA SE CORTÓ: {resultado.abortada}. Lo que no se analizó vuelve a salir como nuevo.\n")
     mudas = [corrida.fuentes.get(fid, fid) for fid, cob in corrida.cobertura.items() if cob.estado != "ok"]
@@ -100,7 +148,29 @@ def _codigo(resultado: Resultado, pagina, corrida: Corrida) -> int:
         return 1
     if corrida.cobertura and all(c.estado == "error" for c in corrida.cobertura.values()):
         return 1  # ninguna fuente se pudo leer: no es que no haya novedades
-    return 2 if pagina.conteos["sin_analizar"] else 0
+    return 2 if pagina.conteos["sin_analizar"] or pagina.conteos["articulo_pendiente"] else 0
+
+
+def _marcar_como_vistas(memoria: Memoria, nuevas: list, resultado: Resultado, corrida: Corrida, salida) -> bool:
+    """Marca y guarda lo analizado, y sólo eso. False (con aviso) si no se pudo guardar.
+
+    No se marca lo que quedó sin analizar ni lo analizado con el artículo pendiente: eso vuelve a salir.
+    """
+    analizadas = [
+        n for n in nuevas if n.clave in resultado.analizadas and not articulo_pendiente(resultado.analizadas[n.clave])
+    ]
+    if not analizadas:
+        return True
+    try:
+        memoria.marcar(analizadas, corrida.generado)
+        memoria.guardar(corrida.generado)
+    except (MemoriaError, OSError) as exc:
+        salida.write(
+            f"NO SE PUDO GUARDAR la memoria ({type(exc).__name__}: {exc}). La página está escrita, pero "
+            "estas novedades van a volver a salir como nuevas en la próxima corrida.\n"
+        )
+        return False
+    return True
 
 
 def _correr_idea(args, texto_contexto: str, runner, carpeta: Path, ahora, salida) -> int:
@@ -138,21 +208,11 @@ def _correr_resumen(args, desde, hasta, inicio, texto_contexto, runner, fetcher,
         if publicada is None:
             return 1
         pagina, ruta_html, ruta_json = publicada
+        # Con la página ya en disco, lo primero es la memoria; recién después se informa por pantalla.
+        guardada = _marcar_como_vistas(memoria, nuevas, resultado, corrida, salida)
         _informar(pagina, ruta_html, ruta_json, resultado, corrida, salida)
         codigo = _codigo(resultado, pagina, corrida)
-        # Con la página ya en disco: lo analizado (y sólo eso) se marca como visto.
-        analizadas = [n for n in nuevas if n.clave in resultado.analizadas]
-        if analizadas:
-            try:
-                memoria.marcar(analizadas, corrida.generado)
-                memoria.guardar(corrida.generado)
-            except (MemoriaError, OSError) as exc:
-                salida.write(
-                    f"NO SE PUDO GUARDAR la memoria ({type(exc).__name__}: {exc}). La página está escrita, pero "
-                    "estas novedades van a volver a salir como nuevas en la próxima corrida.\n"
-                )
-                return 1
-        return codigo
+        return codigo if guardada else 1
 
 
 def main(
@@ -166,7 +226,7 @@ def main(
     ruta_memoria: Path = RUTA_POR_DEFECTO,
     carpeta: Path | None = None,
 ) -> int:
-    salida = salida or sys.stdout
+    salida = _SalidaSegura(salida or sys.stdout)
     fuentes = tuple(fuentes)
     parser = argparse.ArgumentParser(
         prog="python -m radar",

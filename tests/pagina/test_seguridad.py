@@ -172,6 +172,16 @@ class TestEnlaces(unittest.TestCase):
         self.assertEqual(revisor.problemas, [])
         self.assertEqual(sorted(revisor.hrefs), sorted(n.enlace for n in buenas))
 
+    def test_los_enlaces_malos_tampoco_salen_en_lo_sin_analizar_del_json(self):
+        pares = [(novedad(i, enlace=m), None) for i, m in enumerate(self.MALOS)]
+        pares.append((novedad(500, enlace=ENLACE_BUENO), None))
+        pagina = construir(corrida_de(pares))
+        enlaces = {x["clave"]: x["enlace"] for x in json.loads(pagina.json)["sin_analizar"]}
+        self.assertEqual(len(enlaces), len(self.MALOS) + 1)
+        self.assertEqual(enlaces.pop("f:500"), ENLACE_BUENO)
+        self.assertEqual(set(enlaces.values()), {None})
+        self.assertEqual(revisar(pagina.html).hrefs, [])  # y la lista de la página es texto, sin enlaces
+
     def test_la_pagina_no_confia_en_que_la_lectura_ya_validara(self):
         # Una novedad armada a mano con un enlace que la lectura habría rechazado: no sale como enlace.
         self.assertIsNone(enlace_seguro("javascript:alert(1)"))
@@ -249,6 +259,21 @@ class TestTexto(unittest.TestCase):
     def test_plano_acota(self):
         self.assertEqual(len(plano("x" * 100_000, 50)), 50)
         self.assertTrue(plano("x" * 100_000, 50).endswith("…"))
+
+    def test_plano_quita_el_selector_de_variacion(self):
+        self.assertEqual(plano("a️b󠄀c︎"), "abc")
+
+    def test_plano_en_el_limite(self):
+        justo, de_mas = "x" * 50, "x" * 51
+        self.assertEqual(plano(justo, 50), justo)  # justo en el límite: intacto, sin puntos suspensivos
+        self.assertEqual(plano(de_mas, 50), "x" * 49 + "…")  # un carácter de más: se recorta con el signo
+        self.assertEqual(len(plano(de_mas, 50)), 50)
+
+    def test_plano_con_un_texto_enorme_respeta_el_corte_previo(self):
+        # Sólo se miran los primeros `limite * 4` caracteres: un texto de millones de caracteres no se recorre entero.
+        self.assertEqual(plano("x" * 10_000_000, 50), "x" * 49 + "…")
+        self.assertEqual(plano("xxx" + "​" * 100 + "yyyy", 5), "xxx")
+        self.assertEqual(plano("xxx" + "​" * 10 + "yyyy", 5), "xxxy…")
 
     def test_e_escapa_comillas_y_menores(self):
         self.assertEqual(e('<a href="x">&\'</a>'), "&lt;a href=&quot;x&quot;&gt;&amp;&#x27;&lt;/a&gt;")

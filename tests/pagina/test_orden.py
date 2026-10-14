@@ -147,7 +147,7 @@ class TestContenidoDelJson(unittest.TestCase):
         self.assertEqual(d["conteos"], self.pagina.conteos)
         self.assertEqual(
             d["conteos"],
-            {"leidas": 10, "nuevas": 10, "analizadas": 10, "sirven": 5, "tal_vez": 2, "otras": 1, "ruido": 2, "sin_analizar": 0},
+            {"leidas": 10, "nuevas": 10, "analizadas": 10, "sirven": 5, "tal_vez": 2, "otras": 1, "ruido": 2, "sin_analizar": 0, "articulo_pendiente": 0},
         )
         self.assertEqual(d["contadores"], Resultado().contadores())
         self.assertEqual(d["cobertura"]["fuente-a"], {"nombre": "Fuente A", **self.corrida.cobertura["fuente-a"].a_dict()})
@@ -171,6 +171,29 @@ class TestContenidoDelJson(unittest.TestCase):
         # El ruido sólo es una línea en la página; su análisis completo está en el JSON.
         ruido = next(x for x in self.datos["novedades"] if x["veredicto"] == "no")
         self.assertEqual(ruido["analisis"]["en_que_consiste_el_cambio"], "Un método nuevo de revisión.")
+
+
+class TestArticuloPendiente(unittest.TestCase):
+    def _con(self, sirve: str, estado: str | None, **cambios):
+        info = InfoArticulo(estado, "motivo") if estado is not None else None
+        return analisis("f:1", sirve=sirve, articulo=info, **cambios)
+
+    def test_solo_si_y_tal_vez_con_el_articulo_no_leido(self):
+        from radar.pagina.orden import articulo_pendiente
+
+        self.assertTrue(articulo_pendiente(self._con("si", "no_leido")))
+        self.assertTrue(articulo_pendiente(self._con("tal_vez", "no_leido")))
+        self.assertFalse(articulo_pendiente(self._con("no", "no_leido")))
+        self.assertFalse(articulo_pendiente(self._con("quizás", "no_leido")))
+        for estado in ("leido", "desactivado", "no_corresponde", "no_aplica", "host_distinto", "sin_texto", "error"):
+            self.assertFalse(articulo_pendiente(self._con("si", estado)), estado)
+        self.assertFalse(articulo_pendiente(self._con("si", None)))
+
+    def test_una_sospechosa_no_es_pendiente_porque_su_articulo_no_se_lee_nunca(self):
+        from radar.pagina.orden import articulo_pendiente
+
+        self.assertFalse(articulo_pendiente(self._con("si", "no_leido", sospecha_de_instrucciones=True)))
+        self.assertFalse(articulo_pendiente(self._con("tal_vez", "no_leido", sospecha_mecanica=True)))
 
 
 class TestLoQueLaPaginaDice(unittest.TestCase):
