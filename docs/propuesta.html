@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Propuesta del radar</title>
+<style>
+:root{
+  --bg:#f6f8fa;--panel:#ffffff;--ink:#0b1b2b;--muted:#5b6b7b;--line:#dde3ea;
+  --brand:#0e8f7f;--brand-soft:#e3f6f3;--spark:#0e8f7f;
+  --warn:#9a5b00;--warn-soft:#fff4e0;--crit:#b4232c;--crit-soft:#fdecee;
+  --ok:#1f7a3a;--ok-soft:#e7f5ec;--info:#2457a6;--info-soft:#e8effb;
+  --cite:#6a4fb3;--cite-soft:#f1edfb;--shadow:0 1px 2px rgba(11,27,43,.06),0 4px 16px rgba(11,27,43,.05);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0b1520;--panel:#111e2b;--ink:#e6edf3;--muted:#93a4b5;--line:#22334a;
+  --brand:#42dac4;--brand-soft:#0f2e2b;--spark:#42dac4;
+  --warn:#f0b35a;--warn-soft:#2e2412;--crit:#ff7a83;--crit-soft:#341a1d;
+  --ok:#6fd38f;--ok-soft:#13281b;--info:#86b0ff;--info-soft:#16233a;
+  --cite:#b9a4ff;--cite-soft:#221c38;--shadow:0 1px 2px rgba(0,0,0,.3),0 6px 20px rgba(0,0,0,.25);
+}}
+:root[data-theme="dark"]{
+  --bg:#0b1520;--panel:#111e2b;--ink:#e6edf3;--muted:#93a4b5;--line:#22334a;
+  --brand:#42dac4;--brand-soft:#0f2e2b;--spark:#42dac4;
+  --warn:#f0b35a;--warn-soft:#2e2412;--crit:#ff7a83;--crit-soft:#341a1d;
+  --ok:#6fd38f;--ok-soft:#13281b;--info:#86b0ff;--info-soft:#16233a;
+  --cite:#b9a4ff;--cite-soft:#221c38;--shadow:0 1px 2px rgba(0,0,0,.3),0 6px 20px rgba(0,0,0,.25);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+a{color:var(--brand)}
+code{font:.86em ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--brand-soft);padding:.1em .35em;border-radius:5px;word-break:break-word}
+.wrap{max-width:1080px;margin:0 auto;padding:0 16px}
+header.top{position:sticky;top:0;z-index:10;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+header.top .wrap{display:flex;align-items:center;gap:16px;min-height:60px;flex-wrap:wrap}
+.logo{height:28px;width:auto;color:var(--ink)}
+.logo .spark{fill:var(--spark)}
+nav.toc{display:flex;gap:4px;flex-wrap:wrap;margin-left:auto}
+nav.toc a{font-size:.85rem;color:var(--muted);text-decoration:none;padding:4px 8px;border-radius:6px}
+nav.toc a:hover{background:var(--brand-soft);color:var(--ink)}
+.tools{display:flex;gap:8px}
+button.tg{font:inherit;font-size:.85rem;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:6px 10px;border-radius:8px;cursor:pointer}
+button.tg[aria-pressed="true"]{background:var(--cite-soft);border-color:var(--cite);color:var(--cite)}
+.hero{padding:40px 0 16px}
+.status{display:inline-flex;align-items:center;gap:8px;font-size:.82rem;font-weight:600;color:var(--warn);background:var(--warn-soft);border:1px solid color-mix(in srgb,var(--warn) 35%,transparent);padding:4px 10px;border-radius:999px}
+.status.ok{color:var(--ok);background:var(--ok-soft);border-color:color-mix(in srgb,var(--ok) 35%,transparent)}.status.ok::before{background:var(--ok);animation:none}
+.status::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--warn);animation:pulse 1.8s infinite}
+@keyframes pulse{50%{opacity:.35}}
+h1{font-size:clamp(1.8rem,4vw,2.6rem);line-height:1.15;margin:.5em 0 .3em;letter-spacing:-.01em}
+.lead{font-size:1.15rem;color:var(--muted);max-width:760px;margin:0}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:28px 0 8px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;box-shadow:var(--shadow)}
+.kpi b{display:block;font-size:2rem;line-height:1.1;color:var(--brand);font-variant-numeric:tabular-nums}
+.kpi span{color:var(--muted);font-size:.9rem}
+section{margin:36px 0}
+h2{font-size:1.35rem;margin:0 0 4px;display:flex;align-items:baseline;gap:10px}
+h2 .n{font-size:.8rem;color:var(--muted);font-weight:600;border:1px solid var(--line);border-radius:6px;padding:1px 7px}
+.sub{color:var(--muted);margin:0 0 16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px;box-shadow:var(--shadow)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:stretch}
+.step{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;box-shadow:var(--shadow)}
+.step .k{font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.step h3{margin:4px 0 6px;font-size:1.02rem}
+.step p{margin:0;font-size:.9rem;color:var(--muted)}
+.step.sens{border-color:color-mix(in srgb,var(--crit) 45%,var(--line));background:linear-gradient(var(--panel),var(--panel)) padding-box}
+.step.you{border-color:var(--brand);background:var(--brand-soft)}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:999px;border:1px solid transparent;white-space:nowrap}
+.b-crit{color:var(--crit);background:var(--crit-soft);border-color:color-mix(in srgb,var(--crit) 30%,transparent)}
+.b-norm{color:var(--info);background:var(--info-soft);border-color:color-mix(in srgb,var(--info) 30%,transparent)}
+.b-ok{color:var(--ok);background:var(--ok-soft);border-color:color-mix(in srgb,var(--ok) 30%,transparent)}
+.b-warn{color:var(--warn);background:var(--warn-soft);border-color:color-mix(in srgb,var(--warn) 30%,transparent)}
+.b-mute{color:var(--muted);background:transparent;border-color:var(--line)}
+.arrow{display:none}
+@media (min-width:900px){.flow{grid-template-columns:repeat(6,1fr)}.step:not(:last-child)::after{content:"→";position:absolute;right:-12px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:1.1rem;z-index:1}}
+.mock{border:1px dashed var(--line);border-radius:12px;padding:16px;background:var(--bg)}
+.mock .row{display:flex;gap:10px;align-items:flex-start}
+.mock .num{flex:none;width:30px;height:30px;border-radius:8px;background:var(--brand);color:var(--panel);display:grid;place-items:center;font-weight:800}
+.mock .ph{color:var(--muted);font-style:italic}
+.mock dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:10px 0 0;font-size:.92rem}
+.mock dt{font-weight:700}
+.mock dd{margin:0}
+.rings{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.ring h3{margin:0 0 4px;font-size:1rem}
+.ring p{margin:0 0 10px;color:var(--muted);font-size:.88rem}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-size:.84rem;border:1px solid var(--line);border-radius:8px;padding:4px 8px;background:var(--panel)}
+.chip small{color:var(--muted)}
+.chip.ver{border-style:dashed}
+.chip.out{opacity:.6;text-decoration:line-through}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:.84rem;color:var(--muted);margin-top:12px}
+.timeline{display:grid;gap:10px}
+.work{display:grid;grid-template-columns:44px 1fr;gap:12px;align-items:start}
+.work .dot{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-weight:800;border:1px solid var(--line);background:var(--panel)}
+.work.crit .dot{border-color:var(--crit);color:var(--crit)}
+.work .body{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;box-shadow:var(--shadow)}
+.work .body h3{margin:0 0 6px;font-size:1rem;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.work .body p{margin:6px 0 0;font-size:.9rem;color:var(--muted)}
+.lane{font:.78rem ui-monospace,Consolas,monospace;color:var(--muted)}
+.auth{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+.auth .card h3{margin:0 0 6px;font-size:1rem}
+.auth .card p{margin:0;font-size:.92rem}
+ul.clean{margin:0;padding-left:1.1em}
+ul.clean li{margin:6px 0}
+.tree{font:.9rem ui-monospace,Consolas,monospace;line-height:1.9}
+.tree .f{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+details{background:var(--panel);border:1px solid var(--line);border-radius:12px;margin:8px 0;box-shadow:var(--shadow)}
+summary{cursor:pointer;padding:12px 16px;font-weight:600;list-style:none;display:flex;gap:10px;align-items:baseline}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"▸";color:var(--muted);transition:transform .15s}
+details[open] summary::before{transform:rotate(90deg)}
+details .in{padding:0 16px 14px}
+blockquote{margin:8px 0 0;padding:10px 14px;border-left:3px solid var(--brand);background:var(--brand-soft);border-radius:0 8px 8px 0}
+.approve{border:2px solid var(--ok);background:var(--ok-soft);border-radius:14px;padding:20px}
+.approve h2{color:var(--ok)}
+.approve dl{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:10px 0 0}
+.approve dd{margin:0}
+.cite{display:none;font-size:.74rem;font-weight:600;color:var(--cite);background:var(--cite-soft);border-radius:5px;padding:0 5px;margin-left:3px;white-space:normal}
+body.show-cites .cite{display:inline}
+.sup{color:var(--warn);font-weight:600}
+footer{border-top:1px solid var(--line);margin-top:48px;padding:20px 0 40px;color:var(--muted);font-size:.86rem}
+@media print{header.top{position:static}.tools{display:none}body .cite{display:inline}details{break-inside:avoid}details:not([open]) .in{display:block}}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <svg class="logo" viewBox="0 0 1120 300" role="img" aria-label="INGOL">
+      <g fill="none" stroke="currentColor" stroke-width="15" stroke-linejoin="round">
+        <path opacity=".36" stroke-width="2" d="M48 150H1062"/>
+        <path d="M77 72V228"/><path d="M164 228V72L310 228V72"/>
+        <path d="M544 72H424C355 72 325 105 325 150S355 228 424 228H544V166H464"/>
+        <rect x="624" y="72" width="190" height="156" rx="75"/><path d="M891 72V228H1045"/>
+      </g>
+      <path class="spark" d="M719 96c0 29 15 44 44 44-29 0-44 15-44 44 0-29-15-44-44-44 29 0 44-15 44-44Z"/>
+    </svg>
+    <nav class="toc" aria-label="Secciones">
+      <a href="#que">Qué es</a><a href="#como">Cómo funciona</a><a href="#fuentes">Fuentes</a><a href="#plan">Plan</a>
+      <a href="#autoriza">Tu sí autoriza</a><a href="#riesgos">Riesgos</a><a href="#qa">Entrevista</a><a href="#aprobacion">Aprobación</a>
+    </nav>
+    <div class="tools">
+      <button class="tg" id="cites" aria-pressed="false" title="Muestra de dónde sale cada afirmación">Mostrar fuentes</button>
+      <button class="tg" id="theme" title="Tema claro u oscuro">Tema</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="hero" id="que">
+    <span class="status ok">Aprobada el 2026-10-14</span>
+    <h1>Radar de novedades para INGOL</h1>
+    <p class="lead">Un programa en tu máquina que lee fuentes de IA, y por cada novedad <strong>te explica si le sirve a
+      INGOL, por qué, en qué consiste el cambio y qué implica para el desarrollo</strong>. Vos decís sí o no; nada cambia
+      INGOL solo.<span class="cite">P1 · P3 · P4 · pedido</span></p>
+    <div class="kpis">
+      <div class="kpi"><b>13</b><span>fuentes fijas, en tres anillos</span><span class="cite">fuentes-2026-10-13.md</span></div>
+      <div class="kpi"><b>4 sem.</b><span>primer resumen, antes del 3 de noviembre (estimado)</span><span class="cite">pedido · fecha: supuesto</span></div>
+      <div class="kpi"><b>US$ 0</b><span>sin gasto ni claves nuevas: usa tu suscripción de Claude</span><span class="cite">P2</span></div>
+      <div class="kpi"><b>0 · 0</b><span>afirmaciones sin fuente y pedidos perdidos, tras tres revisiones</span><span class="cite">revisión independiente</span></div>
+    </div>
+  </div>
+
+  <section id="como">
+    <h2><span class="n">1–2</span>Cómo funciona</h2>
+    <p class="sub">El recorrido de una novedad, de la fuente hasta INGOL. Lo marcado en rojo es código sensible: lee
+      internet o habla con un modelo, y cada cambio ahí pide tu firma.</p>
+    <div class="flow">
+      <div class="step"><div class="k">Entrada</div><h3>13 fuentes</h3><p>Feeds y páginas públicas de IA, seguridad y divulgadores.</p></div>
+      <div class="step sens"><div class="k">Lectura <span class="badge b-crit">sensible</span></div><h3>Lee y recorta</h3><p>Enlace, frase, título y fecha. Dice desde cuándo cubre cada fuente y cuál no trajo nada.<span class="cite">pedido · título y fecha: supuesto</span></p></div>
+      <div class="step"><div class="k">Memoria</div><h3>No repite</h3><p>Guarda lo ya visto, fuera de git.<span class="cite">pedido · .gitignore</span></p></div>
+      <div class="step sens"><div class="k">Análisis <span class="badge b-crit">sensible</span></div><h3>Claude opina</h3><p>Sin herramientas y con respuesta de forma fija. Lo de internet no es confiable.<span class="cite">pedido</span></p></div>
+      <div class="step"><div class="k">Salida</div><h3>Una página</h3><p>Numeradas, las que sirven primero, con la cobertura por fuente.<span class="cite">P3 · orden y HTML: supuesto</span></p></div>
+      <div class="step you"><div class="k">Vos</div><h3>«Sí a la 2 y la 5»</h3><p>Se lo decís a la sesión de INGOL; entra por el camino de siempre.<span class="cite">P3 · pedido</span></p></div>
+    </div>
+
+    <div class="grid2" style="margin-top:14px">
+      <div class="card">
+        <h3 style="margin-top:0">Las preguntas que Claude le hace a cada novedad</h3>
+        <ul class="clean">
+          <li>¿Mejora el control?</li><li>¿Mejora el software que sale?</li>
+          <li>¿Es un dato de adaptador o toca el Core?</li><li>¿Lo regala el proveedor?</li>
+        </ul>
+        <p class="sub" style="margin:10px 0 0">Son las que INGOL ya usa para juzgar novedades externas. Lo que propone es
+          consejo, como un análisis externo; si traés una idea propia, se analiza igual.<span class="cite">pedido · P3</span></p>
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0">Así se va a ver cada novedad <span class="badge b-mute">maqueta</span></h3>
+        <div class="mock">
+          <div class="row"><div class="num">2</div><div><strong>Título de la novedad</strong> <span class="badge b-ok">sirve</span><br>
+            <small class="ph">fuente · fecha · enlace · una frase de la fuente</small></div></div>
+          <dl>
+            <dt>Por qué</dt><dd class="ph">qué responde a las cuatro preguntas</dd>
+            <dt>El cambio</dt><dd class="ph">en qué consiste, en concreto</dd>
+            <dt>Implica</dt><dd class="ph">qué toca del desarrollo de INGOL</dd>
+            <dt>Acción</dt><dd class="ph">lo que se propone hacer si decís sí</dd>
+          </dl>
+        </div>
+        <p class="sub" style="margin:10px 0 0">El contenido aparece recién con el primer resumen; esto muestra sólo la forma.<span class="cite">P4 · pedido</span></p>
+      </div>
+    </div>
+  </section>
+
+  <section id="fuentes">
+    <h2><span class="n">4</span>Las fuentes</h2>
+    <p class="sub">Lo que el programa lee por internet. Cuatro feeds no guardan cuatro semanas: el resumen dice desde
+      cuándo cubre cada uno, sin paginar.<span class="cite">pedido · no paginar: supuesto</span></p>
+    <div class="rings">
+      <div class="card ring"><h3>Anillo 1 · proveedores que INGOL usa</h3><p>Lo que cambia las herramientas con las que se construye.</p>
+        <div class="chips">
+          <span class="chip">Anthropic, noticias e ingeniería <small>página</small></span>
+          <span class="chip">Claude Code, versiones <small>feed</small></span>
+          <span class="chip ver">Plataforma Claude, notas <small>a verificar</small></span>
+          <span class="chip">OpenAI <small>feed</small></span>
+          <span class="chip ver">Codex, versiones <small>a verificar</small></span>
+          <span class="chip">Google para desarrolladores <small>feed</small></span>
+          <span class="chip">GitHub, novedades <small>feed</small></span>
+          <span class="chip">IBM Technology <small>YouTube, feed</small></span>
+        </div></div>
+      <div class="card ring"><h3>Anillo 2 · estándares y seguridad</h3><p>Lo que cambia qué se considera seguro.</p>
+        <div class="chips">
+          <span class="chip">METR <small>página</small></span>
+          <span class="chip ver">OWASP GenAI <small>a verificar</small></span>
+          <span class="chip ver">OpenSSF <small>a verificar</small></span>
+        </div></div>
+      <div class="card ring"><h3>Anillo 3 · divulgadores</h3><p>Quienes prueban y explican antes que nadie.</p>
+        <div class="chips">
+          <span class="chip">Simon Willison <small>feed</small></span>
+          <span class="chip">martinfowler.com <small>feed</small></span>
+        </div></div>
+    </div>
+    <div class="legend"><span><span class="chip">borde lleno</span> verificada</span><span><span class="chip ver">punteado</span> se verifica en el trabajo 2; si no se puede leer, pasa a «para después»</span><span class="cite">fuentes-2026-10-13.md · a verificar: supuesto</span></div>
+    <details><summary>Fuentes que quedan afuera o para después</summary><div class="in">
+      <ul class="clean">
+        <li>IBM Think y el blog de IBM Research (descartadas en la investigación).<span class="cite">fuentes: «Descartadas de IBM»</span></li>
+        <li>Prensa general, redes sociales, video que no sea el aviso de IBM y newsletters pagas.<span class="cite">fuentes: «Fuera»</span></li>
+        <li>Cursor y Cognition, si hace falta.<span class="cite">fuentes: «Para después»</span></li>
+        <li>Prensa de IBM, Agentic AI Foundation, DORA, Thoughtworks, Latent Space y Hamel Husain: sin verificar o de baja frecuencia.<span class="cite">supuesto</span></li>
+      </ul></div></details>
+  </section>
+
+  <section id="plan">
+    <h2><span class="n">3 · 5</span>Plan y entregables</h2>
+    <p class="sub">Cada trabajo con su contrato, sus pruebas y la CI, controlado contra esta propuesta. Las pruebas corren
+      en tu máquina y su salida va en el PR. Ninguno va por el camino rápido: está cerrado.<span class="cite">pedido · entrevista · CLAUDE.md</span></p>
+    <div class="timeline">
+      <div class="work"><div class="dot">0</div><div class="body"><h3>Esta propuesta <span class="badge b-norm">normal</span></h3>
+        <code>docs/propuesta.md</code><div class="lane">critical: no · lane: standard · approvals: none · fast: no</div></div></div>
+      <div class="work crit"><div class="dot">1</div><div class="body"><h3>Marcar lo sensible <span class="badge b-crit">crítico · tu firma</span></h3>
+        Escribe las zonas y las rutas sensibles (parte 9). <code>.ingol/policies/project-level.yaml</code> <code>.ingol/policies/fast-lane.yaml</code>
+        <div class="lane">critical: yes · lane: controlled · approvals: owner_approval · fast: no</div></div></div>
+      <div class="work crit"><div class="dot">2</div><div class="body"><h3>Lectura y memoria <span class="badge b-norm">hoy normal</span> <span class="badge b-crit">después del 1: tu firma</span></h3>
+        Pruebas sobre recortes de las fuentes, dos ventanas seguidas y entradas armadas a propósito. <code>radar/lectura/**</code> <code>radar/memoria/**</code> <code>tests/lectura/**</code>
+        <div class="lane">critical: no · lane: standard · approvals: none · fast: no (2026-10-14)</div>
+        <p>Cuando el trabajo 1 marque la carpeta como ruta sensible, pasa a crítico y pide tu firma.<span class="cite">fast-lane.yaml · CLAUDE.md</span></p></div></div>
+      <div class="work crit"><div class="dot">3</div><div class="body"><h3>Análisis con Claude <span class="badge b-norm">hoy normal</span> <span class="badge b-crit">después del 1: tu firma</span></h3>
+        Sin herramientas, con respuesta de forma fija; pruebas de entradas armadas. Acá se verifica que <code>claude -p</code> pueda correr así. <code>radar/analisis/**</code> <code>tests/analisis/**</code>
+        <div class="lane">critical: no · lane: standard · approvals: none · fast: no (2026-10-14)</div></div></div>
+      <div class="work"><div class="dot">4</div><div class="body"><h3>Página y primer resumen <span class="badge b-norm">normal</span> <span class="badge b-ok">entregable</span></h3>
+        El resumen de las últimas cuatro semanas, contrastado con lo que INGOL ya tenía registrado como importante en esas semanas, para ver si se le escapó algo. <code>radar/pagina/**</code> <code>radar/__main__.py</code> <code>tests/pagina/**</code> <code>README.md</code>
+        <div class="lane">critical: no · lane: standard · approvals: none · fast: no</div>
+        <p>Antes del 2026-11-03 (estimado).<span class="cite">pedido · fecha y fuente del contraste: supuesto</span></p></div></div>
+    </div>
+    <p class="sub" style="margin-top:12px">Para D4, no para el programa: la medida M1 cuenta desde el 2026-10-13 y los
+      resúmenes se cuentan en <code>d4-results.md</code> de INGOL.<span class="cite">pedido</span></p>
+  </section>
+
+  <section id="autoriza">
+    <h2><span class="n">4</span>Lo que tu sí autoriza</h2>
+    <p class="sub">Sólo esto, escrito. Cualquier otra cosa vuelve a pedirte permiso.</p>
+    <div class="auth">
+      <div class="card"><h3>Leer por internet</h3><p>Las fuentes de arriba, nada más.<span class="cite">fuentes-2026-10-13.md</span></p></div>
+      <div class="card"><h3>Claude con tu cuota</h3><p>Por <code>claude -p</code>, sin clave nueva. Hasta 300 novedades por corrida, contando un reintento; si hay más, la página dice cuántas quedaron sin analizar.<span class="cite">P2 · número y mecanismo: supuesto</span></p></div>
+      <div class="card"><h3>Sin gasto en dinero</h3><p>Ni API paga ni claves nuevas.<span class="cite">P2</span></p></div>
+      <div class="card"><h3>GitHub del radar</h3><p>Ramas, subida, PR e integración en <code>diegomondrik/ingol-radar</code> con la CI en verde. Lo que pida firma, la firmás vos.<span class="cite">supuesto: lo autoriza este sí</span></p></div>
+    </div>
+    <div class="grid2" style="margin-top:14px">
+      <div class="card"><h3 style="margin-top:0">Dónde queda cada cosa</h3><ul class="clean">
+        <li>Resúmenes y memoria: en tu máquina, fuera de git (<code>generated/</code>).<span class="cite">pedido · .gitignore</span></li>
+        <li>Las pruebas guardan recortes mínimos de las fuentes: título, fecha, enlace y una frase.<span class="cite">pedido</span></li>
+        <li>Sin datos de clientes.<span class="cite">pedido</span></li>
+      </ul></div>
+      <div class="card"><h3 style="margin-top:0">INGOL queda afuera</h3><ul class="clean">
+        <li>El código de INGOL no se copia al proyecto: la CI lo baja con la llave de solo lectura <code>INGOL_TRUSTED_READ_TOKEN</code>.<span class="cite">pedido · workflow</span></li>
+        <li>El repositorio es público: lo decidió el contrato (D-249); el pedido inicial (D-248) decía privado.<span class="cite">pedido</span></li>
+      </ul></div>
+    </div>
+  </section>
+
+  <section id="riesgos">
+    <h2><span class="n">6</span>Riesgos y supuestos</h2>
+    <p class="sub">Lo que puede salir mal, dicho antes.</p>
+    <div class="grid2">
+      <div class="card"><span class="badge b-warn">a verificar</span><p>Que <code>claude -p</code> corra sin herramientas. Se prueba en el trabajo 3; si no se puede, se vuelve a elegir entre las opciones de la pregunta 2.<span class="cite">supuesto</span></p></div>
+      <div class="card"><span class="badge b-warn">calidad</span><p>El resumen puede traer ruido o perder lo importante; por eso el contraste del trabajo 4.<span class="cite">pedido</span></p></div>
+      <div class="card"><span class="badge b-warn">calidad</span><p>El análisis puede sonar bien y estar mal. Nada toca INGOL sin tu sí.<span class="cite">supuesto · pedido</span></p></div>
+      <div class="card"><span class="badge b-mute">fuentes</span><p>Una fuente leída desde su página puede quedar muda si cambia el diseño; la página lo avisa. Cuatro feeds no llegan a cuatro semanas.<span class="cite">pedido</span></p></div>
+      <div class="card"><span class="badge b-mute">tu tiempo</span><p>Los trabajos 2 y 3 van a pedir tu firma, por ser rutas sensibles.<span class="cite">fast-lane.yaml · CLAUDE.md</span></p></div>
+      <div class="card"><span class="badge b-mute">exposición</span><p>El repositorio público deja ver el método de INGOL; ante un defecto del verificador, la llave podría leer su código. La llave vence y sólo lee.<span class="cite">pedido</span></p></div>
+    </div>
+  </section>
+
+  <section id="nivel">
+    <h2><span class="n">9</span>Nivel y zonas</h2>
+    <p class="sub">Nivel 1, personal: una herramienta tuya, en tu máquina, sin datos de terceros. Que el repositorio sea
+      público no cambia el nivel.<span class="cite">CLAUDE.md · pedido · supuesto</span></p>
+    <div class="card tree">
+      <div class="f">radar/lectura/** <span class="badge b-warn">zona 2</span><span class="badge b-crit">ruta sensible</span></div>
+      <div class="f">radar/analisis/** <span class="badge b-warn">zona 2</span><span class="badge b-crit">ruta sensible</span></div>
+      <div class="f">radar/memoria/** <span class="badge b-warn">zona 2</span></div>
+      <div class="f">radar/pagina/** <span class="badge b-warn">zona 2</span></div>
+      <div class="legend" style="font-family:system-ui"><span><span class="badge b-warn">zona 2</span> un cambio normal ahí lleva revisión de otro agente</span><span><span class="badge b-crit">ruta sensible</span> un cambio ahí es crítico y pide tu firma</span><span class="cite">pedido · nivel 2 y memoria/página: supuesto</span></div>
+    </div>
+  </section>
+
+  <section id="fuera">
+    <h2><span class="n">7–8</span>Fuera de alcance y lo que falta</h2>
+    <div class="grid2">
+      <div class="card"><h3 style="margin-top:0">No se hace</h3><ul class="clean">
+        <li>Programar la corrida semanal: es uso, no desarrollo.<span class="cite">pedido</span></li>
+        <li>Que el programa escriba en INGOL.<span class="cite">pedido</span></li>
+        <li>Correr en GitHub Actions, o sumar las pruebas del radar a la CI.<span class="cite">pedido · supuesto</span></li>
+        <li>Botones o un archivo para marcar; API paga o clave nueva.<span class="cite">P3 · P2</span></li>
+        <li>Lo que este caso no prueba: datos y archivos de un cliente, una reunión con un tercero, la aprobación de alguien que no seas vos. Eso es D5.<span class="cite">pedido</span></li>
+        <li>Entregar INGOL como paquete publicado, con su licencia.<span class="cite">pedido</span></li>
+      </ul></div>
+      <div class="card"><h3 style="margin-top:0">Lo que falta de tu lado</h3><p>Nada para empezar: con la entrevista se pudieron completar las nueve partes.<span class="cite">entrevista.md</span></p></div>
+    </div>
+  </section>
+
+  <section id="qa">
+    <h2><span class="n">P</span>La entrevista, con tus palabras</h2>
+    <p class="sub">Copiadas tal cual.</p>
+    <details><summary>P1 · ¿Qué problema concreto te resuelve el radar?</summary><div class="in">
+      <p>¿Qué problema concreto te resuelve el radar: qué te pasó, o qué te preocupa que pase, si no lo tenés?</p>
+      <blockquote>con el radar estamos atentos de informacion de IA que pueda ser relevante para mejorar ingol. lo que no entiendo es por que me haces la pregunta, si todo es fue parte de la informacion con la que se genero el contrato, es decir si no sabes para que hacemos la aplicacion, por que la podes empezar a hacer y como esta seguro de hacer lo que hace falta para cumplir el objetivo</blockquote></div></details>
+    <details><summary>P2 · ¿Sin IA, con tu suscripción de Claude o con API paga?</summary><div class="in">
+      <p>Para decidir qué novedades le importan a INGOL hace falta criterio. ¿Cuál de estas tres formas querés? (A) sin IA: el programa filtra por palabras clave; costo cero, más ruido para leer. (B) con IA usando tu suscripción de Claude desde tu máquina: sin clave nueva ni gasto extra, consume tu cuota. (C) con IA por API paga, con una clave nueva y un tope de gasto por corrida.</p>
+      <blockquote>quiero B.</blockquote></div></details>
+    <details><summary>P3 · ¿Cómo querés marcar sí o no?</summary><div class="in">
+      <p>Cuando el radar te muestre las novedades, ¿cómo querés marcar sí o no? (A) botones en la página; (B) un archivo de texto con una cruz; (C) diciéndoselo a la sesión de INGOL ("sí a la 2 y la 5").</p>
+      <blockquote>si, elijo la opcion C, pero lo mas importante es que vos puedas analizar las noticias y decirme tu opinion de si le sirve a ingol o no. No se puede depender qeu un humano pueda tener el conocimiento y la imaginacion para confirmar como se puede mejorar. Si puede ser que ocurra y si te lo digo lo debes analizar para decirme si sirve o no, pero el analisis principal lo tenes que hacer vos</blockquote></div></details>
+    <details><summary>P4 · ¿Qué tendría que tener el primer resumen para que sirva?</summary><div class="in">
+      <p>Cuando veas el primer resumen (las últimas cuatro semanas), ¿qué tendría que tener para que digas «esto sirve»?</p>
+      <blockquote>la respuesta es lo mismo que dije antes. yo no soy el que analiza. Vos analizas, me explicas por que  consideras que serviria la mejora, en que consiste el cambio y que implica para el desarrollo.</blockquote></div></details>
+  </section>
+
+  <section id="aprobacion" class="approve">
+    <h2>Aprobación</h2>
+    <p style="margin:0">Aprobada antes del primer cambio de código.</p>
+    <dl><dt>Quién</dt><dd>Carlos Diego Mondrik, owner de INGOL</dd><dt>Fecha</dt><dd>2026-10-14</dd><dt>Sus palabras</dt><dd>«aprobada la propuesta para el radar.»</dd></dl>
+  </section>
+</main>
+
+<footer><div class="wrap">
+  Vista para leer de <code>docs/propuesta.md</code>, que es la fuente: tiene cada afirmación con su cita textual y pasó
+  tres revisiones independientes (la última, cero afirmaciones sin fuente y cero pedidos perdidos). Si las dos difieren,
+  manda el <code>.md</code>. «Mostrar fuentes» indica de dónde sale cada cosa; el detalle está en el <code>.md</code>.
+</div></footer>
+
+<script>
+(function(){
+  var b=document.body,c=document.getElementById('cites'),t=document.getElementById('theme'),r=document.documentElement;
+  function get(k){try{return localStorage.getItem(k)}catch(e){return null}}
+  function set(k,v){try{localStorage.setItem(k,v)}catch(e){}}
+  function cites(on){b.classList.toggle('show-cites',on);c.setAttribute('aria-pressed',on?'true':'false');c.textContent=on?'Ocultar fuentes':'Mostrar fuentes'}
+  cites(get('radar-cites')==='1');
+  c.addEventListener('click',function(){var on=!b.classList.contains('show-cites');cites(on);set('radar-cites',on?'1':'0')});
+  var saved=get('radar-theme'); if(saved){r.setAttribute('data-theme',saved)}
+  t.addEventListener('click',function(){
+    var cur=r.getAttribute('data-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+    var next=cur==='dark'?'light':'dark'; r.setAttribute('data-theme',next); set('radar-theme',next)});
+})();
+</script>
+</body>
+</html>

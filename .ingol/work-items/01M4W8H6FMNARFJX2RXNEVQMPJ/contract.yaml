@@ -1,0 +1,11 @@
+schema_version: "1"
+id: 01M4W8H6FMNARFJX2RXNEVQMPJ
+objective: "Propuesta del radar aprobada por el owner: para que lo que se construya sea lo pedido (D4 paso 4)"
+lane: standard
+affected_surfaces:
+  - "docs/propuesta.html"
+  - "docs/propuesta.md"
+  - ".ingol/work-items/01M4W8H6FMNARFJX2RXNEVQMPJ/**"
+acceptance:
+  - id: AC01
+    description: "The change does what the title says and the project's automatic checks pass."
