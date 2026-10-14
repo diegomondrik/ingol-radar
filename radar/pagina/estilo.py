@@ -1,7 +1,7 @@
 """Lo fijo de la página: la política de contenido, el logo de INGOL y el estilo. Nada de esto trae datos."""
 
-# Sin JavaScript, sin recursos de afuera: lo único permitido es el estilo de la propia página y una imagen `data:`.
-CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'"
+import base64
+import hashlib
 
 # El logo de docs/propuesta.html (trazo con currentColor; la chispa lleva el color de marca).
 LOGO = (
@@ -110,3 +110,13 @@ footer{border-top:1px solid var(--line);margin-top:40px;padding:18px 0 36px;colo
   td.nombre::before{content:none}
 }
 """
+
+
+def hash_de_estilo(estilo: str) -> str:
+    """La fuente de la política para ese texto exacto de `<style>`: `'sha256-<base64>'` de sus bytes UTF-8."""
+    return "'sha256-" + base64.b64encode(hashlib.sha256(estilo.encode("utf-8")).digest()).decode("ascii") + "'"
+
+
+# Sin JavaScript, sin recursos de afuera ni imágenes (el logo es SVG en línea): lo único permitido es el estilo de
+# la propia página, y sólo el bloque cuyo hash coincide. Cambiar `ESTILO` cambia el hash solo.
+CSP = f"default-src 'none'; style-src {hash_de_estilo(ESTILO)}; base-uri 'none'; form-action 'none'"
