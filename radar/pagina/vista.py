@@ -160,7 +160,7 @@ def _aviso_de_sospecha(analisis: Analisis) -> str:
     return ""
 
 
-def _aviso_de_articulo(analisis: Analisis) -> str:
+def _aviso_de_articulo(analisis: Analisis, cortada: bool) -> str:
     """Una línea con el motivo cuando el artículo no se leyó (o la segunda pasada falló) y la novedad importa."""
     info = analisis.articulo
     if info is None or analisis.sirve not in ("si", "tal_vez"):
@@ -169,7 +169,7 @@ def _aviso_de_articulo(analisis: Analisis) -> str:
         return ""
     prefijo = _ESTADO_ARTICULO.get(info.estado) or "No se pudo leer el artículo"
     motivo = e(info.motivo, 400) if info.motivo else "sin detalle"
-    repetida = " — vuelve a salir en la próxima corrida para leer el artículo." if articulo_pendiente(analisis) else ""
+    repetida = " — vuelve a salir en la próxima corrida para leer el artículo." if articulo_pendiente(analisis, cortada) else ""
     return f'<p class="nota gris">{prefijo}: {motivo}{repetida}</p>'
 
 
@@ -219,7 +219,7 @@ def _tarjeta(entrada: Entrada, corrida: Corrida) -> str:
         f'<div class="cabeza"><span class="badge {clase}">{e(etiqueta)}</span></div>'
         f'<h3>{ancla(nov.enlace, titulo)}</h3>'
         f"{meta}{frase}"
-        f"{_aviso_de_sospecha(an)}{_aviso_de_articulo(an)}"
+        f"{_aviso_de_sospecha(an)}{_aviso_de_articulo(an, bool(corrida.resultado.abortada))}"
         f'{_campo("Por qué sirve o no", an.por_que_sirve_o_no)}'
         f'{_campo("En qué consiste el cambio", an.en_que_consiste_el_cambio)}'
         f'{_campo("Qué implica para el desarrollo", an.que_implica_para_el_desarrollo)}'
@@ -255,7 +255,7 @@ def _conteos(corrida: Corrida, entradas: list[Entrada], sin_analizar: dict[str, 
         "otras": por_grupo["otras"],
         "ruido": por_grupo["ruido"],
         "sin_analizar": len(sin_analizar),
-        "articulo_pendiente": sum(1 for x in entradas if articulo_pendiente(x.analisis)),
+        "articulo_pendiente": sum(1 for x in entradas if articulo_pendiente(x.analisis, bool(corrida.resultado.abortada))),
     }
 
 

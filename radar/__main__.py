@@ -9,13 +9,14 @@ Orden (no se cambia): abrir la memoria (si está ocupada, se corta antes de baja
 descartar lo ya visto -> analizar -> armar y escribir la página y el JSON -> RECIÉN ENTONCES marcar como visto lo
 analizado y guardar la memoria -> informar por pantalla. Así una página que no se pudo escribir no esconde
 novedades (todo lo que no quedó en una página vuelve a salir como nuevo), y una pantalla rota no deshace lo hecho.
-Lo analizado pero con el artículo sin leer por un corte o por el tope (`articulo_pendiente`) sale en la página y NO
-se marca: vuelve a salir en la próxima corrida para el análisis completo.
+Lo analizado pero con el artículo sin leer porque la corrida se cortó (`articulo_pendiente`) sale en la página y NO
+se marca: vuelve a salir en la próxima corrida para el análisis completo. Lo que quedó sin leer por el tope sí se
+marca (repetirlo no avanzaría: la primera pasada volvería a agotar el tope).
 
 Si no se puede escribir la página, lo analizado (que costó cuota) se guarda aparte en `volcado-<marca>.json` y, si
 tampoco se puede, se imprime.
 
-Código de salida: 0 todo analizado; 2 alguna novedad quedó sin analizar o sin leer su artículo; 1 error, corrida
+Código de salida: 0 todo analizado; 2 alguna novedad quedó sin analizar; 1 error, corrida
 cortada, fuentes ilegibles o memoria sin guardar. (Un argumento mal puesto lo corta `argparse` con 2, como en todo
 programa.)
 """
@@ -40,6 +41,7 @@ from radar.lectura.lector import DIAS_POR_DEFECTO, leer, ventana
 from radar.memoria import RUTA_POR_DEFECTO, Memoria, MemoriaError
 from radar.pagina import Corrida, construir, escribir_resumen, escribir_volcado
 from radar.pagina.orden import articulo_pendiente
+from radar.pagina.texto import plano
 
 CARPETA_POR_DEFECTO = RAIZ / "generated" / "resumenes"
 _FECHA = re.compile(r"\d{4}-\d{2}-\d{2}", re.ASCII)
@@ -116,7 +118,7 @@ def _publicar(corrida: Corrida, carpeta: Path, prefijo: str, nuevas: list, salid
         pagina = construir(corrida)
         ruta_html, ruta_json = escribir_resumen(carpeta, corrida.generado, pagina.html, pagina.json_para, prefijo)
     except (Exception, KeyboardInterrupt) as exc:  # noqa: BLE001 - frontera: lo analizado no se tira por un fallo al escribir
-        salida.write(f"NO SE PUDO ESCRIBIR la página ({type(exc).__name__}: {exc}). No se marcó nada como visto.\n")
+        salida.write(f"NO SE PUDO ESCRIBIR la página ({type(exc).__name__}: {plano(exc, 300)}). No se marcó nada como visto.\n")
         _volcar(corrida, nuevas, carpeta, salida, exc)
         return None
     return pagina, ruta_html, ruta_json
@@ -157,7 +159,7 @@ def _marcar_como_vistas(memoria: Memoria, nuevas: list, resultado: Resultado, co
     No se marca lo que quedó sin analizar ni lo analizado con el artículo pendiente: eso vuelve a salir.
     """
     analizadas = [
-        n for n in nuevas if n.clave in resultado.analizadas and not articulo_pendiente(resultado.analizadas[n.clave])
+        n for n in nuevas if n.clave in resultado.analizadas and not articulo_pendiente(resultado.analizadas[n.clave], bool(resultado.abortada))
     ]
     if not analizadas:
         return True

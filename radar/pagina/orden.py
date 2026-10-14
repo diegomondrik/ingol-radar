@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from radar.analisis.analizador import MOTIVO_TOPE
 from radar.analisis.modelos import Analisis
 from radar.lectura.modelos import Novedad
 
@@ -66,14 +67,18 @@ def ordenar(novedades: Mapping[str, Novedad], analizadas: Mapping[str, Analisis]
     return [Entrada(i, nov, an) for i, (nov, an) in enumerate(pares, 1)]
 
 
-def articulo_pendiente(analisis: Analisis) -> bool:
-    """Una novedad que importa (sí o tal vez) a la que no se le leyó el artículo porque la corrida se cortó o llegó al
-    tope: se muestra en la página, pero no se marca como vista, así vuelve a salir para el análisis completo.
+def articulo_pendiente(analisis: Analisis, cortada: bool) -> bool:
+    """Una novedad que importa (sí o tal vez) a la que no se le leyó el artículo porque la corrida se cortó: se muestra
+    en la página, pero no se marca como vista, así vuelve a salir para el análisis completo.
 
-    Una novedad sospechosa de instrucciones no cuenta: su artículo no se lee nunca, y repetirla no arregla nada.
+    Sólo cuenta en una corrida cortada (`cortada`: el resultado trae `abortada`), y nunca por el tope: con más
+    novedades que el tope, la primera pasada lo agota en cada corrida y repetir no avanzaría nunca (gastaría cuota sin
+    leer un artículo). Por la misma razón no cuenta una novedad sospechosa de instrucciones: su artículo no se lee nunca.
     """
     info = analisis.articulo
-    if info is None or info.estado != "no_leido" or analisis.sirve not in ("si", "tal_vez"):
+    if not cortada or info is None or info.estado != "no_leido" or analisis.sirve not in ("si", "tal_vez"):
+        return False
+    if info.motivo == MOTIVO_TOPE:
         return False
     return not (analisis.sospecha_de_instrucciones or analisis.sospecha_mecanica)
 

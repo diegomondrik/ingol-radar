@@ -663,10 +663,13 @@ class TestVolcadoDeEmergencia(Base):
 
 
 class TestArticuloPendiente(Base):
-    """Lo analizado con el artículo sin leer por un corte o por el tope sale en la página pero no se marca."""
+    """Lo analizado con el artículo sin leer porque la corrida se cortó sale en la página pero no se marca; lo que quedó
+    sin leer por el tope sí se marca (repetirlo no avanzaría)."""
 
-    def _correr_con(self, casos: dict[str, object], *argv):
-        resultado = Resultado(analizadas={k: a for k, a in casos.items()})
+    CORTE = "interrumpida por el usuario (Ctrl+C)"
+
+    def _correr_con(self, casos: dict[str, object], *argv, abortada: str | None = CORTE):
+        resultado = Resultado(analizadas={k: a for k, a in casos.items()}, abortada=abortada)
         with mock.patch.object(modulo, "analizar", return_value=resultado):
             return self.correr(*argv)
 
@@ -679,36 +682,49 @@ class TestArticuloPendiente(Base):
             "f:5": un_analisis("f:5", "si", articulo=InfoArticulo("error", "ErrorDescarga: tiempo agotado")),
         }
 
-    def test_si_y_tal_vez_con_el_articulo_no_leido_no_se_marcan_y_el_resto_si(self):
+    def test_en_una_corrida_cortada_la_no_leida_por_el_corte_no_se_marca_y_el_resto_si(self):
         codigo = self._correr_con(self._casos(), "--sin-articulos")
-        self.assertEqual(self.claves_de_la_memoria(), {"f:3", "f:4", "f:5"})
-        self.assertEqual(codigo, 2)  # algo queda pendiente
+        self.assertEqual(self.claves_de_la_memoria(), {"f:2", "f:3", "f:4", "f:5"})  # f:2 no se leyó por el tope
+        self.assertEqual(codigo, 1)  # corrida cortada
         datos = self.datos_del_resumen()
-        self.assertEqual(datos["conteos"]["articulo_pendiente"], 2)
+        self.assertEqual(datos["conteos"]["articulo_pendiente"], 1)
         self.assertEqual(len(datos["novedades"]), 5)  # las cinco están en la página y en el JSON
-        self.assertIn("2 sin leer su artículo", self.texto())
+        self.assertIn("1 sin leer su artículo", self.texto())
 
     def test_la_pagina_lo_dice_en_las_tarjetas_pendientes_y_en_ninguna_otra(self):
         self._correr_con(self._casos(), "--sin-articulos")
         (pagina,) = self.paginas()
         html = pagina.read_text(encoding="utf-8")
-        self.assertEqual(html.count("vuelve a salir en la próxima corrida para leer el artículo"), 2)
+        self.assertEqual(html.count("vuelve a salir en la próxima corrida para leer el artículo"), 1)
         tarjetas = {}
         for tarjeta in re.findall(r"<article .*?</article>", html, re.DOTALL):
             k = int(re.search(r"Título de la novedad (\d+)", tarjeta).group(1))
             tarjetas[k] = tarjeta
         self.assertEqual(sorted(tarjetas), [1, 2, 4, 5])  # f:3 es ruido: no tiene tarjeta
-        for k in (1, 2):
-            self.assertIn("vuelve a salir", tarjetas[k])
-        for k in (4, 5):
+        self.assertIn("vuelve a salir", tarjetas[1])
+        for k in (2, 4, 5):
             self.assertNotIn("vuelve a salir", tarjetas[k])
 
-    def test_la_proxima_corrida_vuelve_a_analizar_solo_las_pendientes_y_las_sin_analizar(self):
+    def test_la_proxima_corrida_vuelve_a_analizar_solo_la_pendiente(self):
         self._correr_con(self._casos(), "--sin-articulos")
         segundo = runner_de()
         self.assertEqual(self.correr("--sin-articulos", runner=segundo), 0)
-        self.assertEqual(sorted(c for llamada in segundo.llamadas for c in llamada["claves"]), ["f:1", "f:2"])
+        self.assertEqual(sorted(c for llamada in segundo.llamadas for c in llamada["claves"]), ["f:1"])
         self.assertEqual(self.claves_de_la_memoria(), {"f:1", "f:2", "f:3", "f:4", "f:5"})
+
+    def test_sin_corte_lo_no_leido_por_el_tope_se_marca_y_no_se_repite(self):
+        # Más novedades que el tope: la primera pasada lo agota y ninguna lee su artículo. Si quedaran pendientes, cada
+        # corrida repetiría las mismas sin avanzar, gastando cuota (hallazgo de la segunda revisión de seguridad).
+        casos = {
+            f"f:{i}": un_analisis(f"f:{i}", "si", articulo=InfoArticulo("no_leido", "tope de la corrida")) for i in range(1, 6)
+        }
+        codigo = self._correr_con(casos, "--sin-articulos", abortada=None)
+        self.assertEqual(self.claves_de_la_memoria(), set(casos))
+        self.assertEqual(codigo, 0)
+        self.assertEqual(self.datos_del_resumen()["conteos"]["articulo_pendiente"], 0)
+        segundo = runner_de()
+        self.correr("--sin-articulos", runner=segundo)
+        self.assertEqual(segundo.llamadas, [])  # nada vuelve a analizarse
 
     def test_una_novedad_sospechosa_no_se_repite_para_siempre(self):
         casos = {
@@ -717,7 +733,7 @@ class TestArticuloPendiente(Base):
         }
         codigo = self._correr_con(casos, "--sin-articulos")
         self.assertEqual(self.claves_de_la_memoria(), {"f:1", "f:2"})
-        self.assertEqual(codigo, 2)  # f:3, f:4 y f:5 no tienen resultado en este caso armado: quedaron sin analizar
+        self.assertEqual(codigo, 1)  # corrida cortada
 
     def test_cada_estado_del_articulo_distinto_de_no_leido_se_marca(self):
         estados = ("desactivado", "error", "sin_texto", "no_aplica", "host_distinto", "leido", "no_corresponde")

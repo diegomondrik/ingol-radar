@@ -69,8 +69,8 @@ arregle su lectura.
 
 Ejemplo: `python -m radar --idea "Que INGOL avise cuando un proveedor cambie sus precios"`.
 
-Al terminar, el programa devuelve un número que usan otros programas: 0 es todo bien, 2 es que quedó algo pendiente
-(sin analizar o sin leer su artículo) y 1 es que hubo un error o se cortó. Para vos, lo que importa es lo que dice la
+Al terminar, el programa devuelve un número que usan otros programas: 0 es todo bien, 2 es que quedó algo sin analizar
+(vuelve a salir la próxima vez) y 1 es que hubo un error o se cortó. Para vos, lo que importa es lo que dice la
 pantalla y la página.
 
 ## Para la sesión de INGOL

@@ -145,9 +145,11 @@ class TestAvisos(unittest.TestCase):
         "estado-desconocido": "No se pudo leer el artículo",
     }
 
-    def _tarjeta(self, sirve: str, info: InfoArticulo | None, **cambios) -> str:
+    def _tarjeta(self, sirve: str, info: InfoArticulo | None, cortada: str | None = None, **cambios) -> str:
         an = analisis("f:1", sirve=sirve, articulo=info, **cambios)
-        return construir(corrida_de([(novedad(1), an)])).html
+        corrida = corrida_de([(novedad(1), an)])
+        corrida.resultado.abortada = cortada
+        return construir(corrida).html
 
     def test_el_aviso_del_articulo_de_una_novedad_que_importa_en_cada_estado(self):
         for estado, prefijo in self.ESTADOS.items():
@@ -174,12 +176,17 @@ class TestAvisos(unittest.TestCase):
         self.assertNotIn('class="nota gris"', self._tarjeta("si", None))
 
     def test_el_articulo_pendiente_dice_que_vuelve_a_salir(self):
-        pendiente = self._tarjeta("si", InfoArticulo("no_leido", "corrida cortada (Ctrl+C)"))
+        corte = "interrumpida por el usuario (Ctrl+C)"
+        pendiente = self._tarjeta("si", InfoArticulo("no_leido", "corrida cortada (Ctrl+C)"), cortada=corte)
         self.assertIn("corrida cortada (Ctrl+C) — vuelve a salir en la próxima corrida para leer el artículo.", pendiente)
         for info in (InfoArticulo("desactivado", "sin segunda pasada"), InfoArticulo("error", "x"), InfoArticulo("sin_texto", "x")):
-            self.assertNotIn("vuelve a salir", self._tarjeta("si", info))
-        sospechosa = self._tarjeta("si", InfoArticulo("no_leido", "sospecha de instrucciones"), sospecha_de_instrucciones=True)
+            self.assertNotIn("vuelve a salir", self._tarjeta("si", info, cortada=corte))
+        sospechosa = self._tarjeta(
+            "si", InfoArticulo("no_leido", "sospecha de instrucciones"), cortada=corte, sospecha_de_instrucciones=True
+        )
         self.assertNotIn("vuelve a salir", sospechosa)  # su artículo no se lee nunca: repetirla no sirve
+        # Sin corte (el tope o el presupuesto de lectura) no vuelve a salir: repetir no avanzaría.
+        self.assertNotIn("vuelve a salir", self._tarjeta("si", InfoArticulo("no_leido", "tope de la corrida")))
 
     def test_dos_avisos_a_la_vez_se_muestran_los_dos(self):
         corrida = corrida_de(

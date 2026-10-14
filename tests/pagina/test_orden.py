@@ -178,22 +178,36 @@ class TestArticuloPendiente(unittest.TestCase):
         info = InfoArticulo(estado, "motivo") if estado is not None else None
         return analisis("f:1", sirve=sirve, articulo=info, **cambios)
 
-    def test_solo_si_y_tal_vez_con_el_articulo_no_leido(self):
+    def test_solo_si_y_tal_vez_con_el_articulo_no_leido_en_una_corrida_cortada(self):
         from radar.pagina.orden import articulo_pendiente
 
-        self.assertTrue(articulo_pendiente(self._con("si", "no_leido")))
-        self.assertTrue(articulo_pendiente(self._con("tal_vez", "no_leido")))
-        self.assertFalse(articulo_pendiente(self._con("no", "no_leido")))
-        self.assertFalse(articulo_pendiente(self._con("quizás", "no_leido")))
+        self.assertTrue(articulo_pendiente(self._con("si", "no_leido"), cortada=True))
+        self.assertTrue(articulo_pendiente(self._con("tal_vez", "no_leido"), cortada=True))
+        self.assertFalse(articulo_pendiente(self._con("no", "no_leido"), cortada=True))
+        self.assertFalse(articulo_pendiente(self._con("quizás", "no_leido"), cortada=True))
         for estado in ("leido", "desactivado", "no_corresponde", "no_aplica", "host_distinto", "sin_texto", "error"):
-            self.assertFalse(articulo_pendiente(self._con("si", estado)), estado)
-        self.assertFalse(articulo_pendiente(self._con("si", None)))
+            self.assertFalse(articulo_pendiente(self._con("si", estado), cortada=True), estado)
+        self.assertFalse(articulo_pendiente(self._con("si", None), cortada=True))
+
+    def test_sin_corte_nada_es_pendiente(self):
+        # Sin corte, lo no leído sale del tope o del presupuesto de lectura: repetirlo no avanzaría.
+        from radar.pagina.orden import articulo_pendiente
+
+        self.assertFalse(articulo_pendiente(self._con("si", "no_leido"), cortada=False))
+        self.assertFalse(articulo_pendiente(self._con("tal_vez", "no_leido"), cortada=False))
+
+    def test_el_tope_no_es_pendiente_ni_en_una_corrida_cortada(self):
+        from radar.analisis.analizador import MOTIVO_TOPE
+        from radar.pagina.orden import articulo_pendiente
+
+        por_tope = analisis("f:1", sirve="si", articulo=InfoArticulo("no_leido", MOTIVO_TOPE))
+        self.assertFalse(articulo_pendiente(por_tope, cortada=True))
 
     def test_una_sospechosa_no_es_pendiente_porque_su_articulo_no_se_lee_nunca(self):
         from radar.pagina.orden import articulo_pendiente
 
-        self.assertFalse(articulo_pendiente(self._con("si", "no_leido", sospecha_de_instrucciones=True)))
-        self.assertFalse(articulo_pendiente(self._con("tal_vez", "no_leido", sospecha_mecanica=True)))
+        self.assertFalse(articulo_pendiente(self._con("si", "no_leido", sospecha_de_instrucciones=True), cortada=True))
+        self.assertFalse(articulo_pendiente(self._con("tal_vez", "no_leido", sospecha_mecanica=True), cortada=True))
 
 
 class TestLoQueLaPaginaDice(unittest.TestCase):
