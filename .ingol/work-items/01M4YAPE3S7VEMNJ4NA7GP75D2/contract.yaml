@@ -1,0 +1,11 @@
+schema_version: "1"
+id: 01M4YAPE3S7VEMNJ4NA7GP75D2
+objective: "Trabajo 5: ajustes Q1-Q3 del validador al prompt del analisis"
+lane: controlled
+affected_surfaces:
+  - "radar/analisis/prompt.py"
+  - "tests/analisis/test_prompt.py"
+  - ".ingol/work-items/01M4YAPE3S7VEMNJ4NA7GP75D2/**"
+acceptance:
+  - id: AC01
+    description: "The change does what the title says and the project's automatic checks pass."
