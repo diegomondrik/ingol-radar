@@ -1,0 +1,13 @@
+schema_version: "1"
+work_item: 01M4Y5SN10X86GVHZ3P129ZMT6
+status: approved
+next_gate: integrate
+owner: "Diego Mondrik"
+executor: "Diego Mondrik"
+branch: "trabajo-4-pagina"
+steps:
+  - implement
+evaluations:
+  - criterion: AC01
+    method: deterministic
+    control: "The project's CI passes on the pull request."
