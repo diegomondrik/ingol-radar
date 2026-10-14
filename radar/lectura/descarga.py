@@ -1,31 +1,75 @@
-"""El fetcher real: urllib, sólo https (también en cada redirección), con tope de tamaño y de tiempo.
+"""El fetcher real: urllib, sólo https (también en cada redirección), con tope de tamaño y plazo total.
 
 Es el único módulo de la lectura que abre la red. El lector recibe un `fetcher` (url -> texto),
 así que las pruebas nunca lo usan: lo reemplazan por uno falso.
+
+PLAZO TOTAL. `descargar` fija una fecha límite de pared al entrar (PLAZO_TOTAL segundos) que cubre
+TODO: conexión, TLS, línea de estado, cabeceras, redirecciones y cuerpo. Cómo se hace cumplir: cada
+conexión es una `ConexionConPlazo` que envuelve su socket en un `SocketConPlazo`; antes de CADA
+operación de red (conectar, enviar, cada recv del TLS, de las cabeceras y del cuerpo) el timeout del
+socket pasa a min(TIMEOUT, lo que queda del plazo) y, si ya no queda nada, se levanta `PlazoVencido`.
+Se eligió esto y no un hilo vigilante que cierre el socket porque es determinista (no depende de que
+cerrar un socket desde otro hilo despierte una lectura bloqueada, que cambia según el sistema) y se
+prueba sin red con un socket falso. Cota: el plazo más lo que tarde una operación en ver que venció,
+que nunca pasa de lo que quedaba.
+Límites que no cubre: la resolución de nombres (getaddrinfo no tiene timeout) y, si un nombre tiene
+varias direcciones, cada intento de conexión usa el timeout que quedaba al empezar.
 """
 
 from __future__ import annotations
 
 import codecs
 import http.client
+import io
 import time
 import urllib.error
 import urllib.request
+from functools import partial
 from urllib.parse import urlsplit
 
 from .limpieza import host_publico
 from .modelos import ErrorDescarga
 
 USER_AGENT = "ingol-radar/0.1 (+https://github.com/diegomondrik/ingol-radar)"
-TIMEOUT = 20  # segundos por operación de red
-PLAZO_TOTAL = 60  # segundos para bajar un documento entero (el timeout solo no frena un goteo)
+TIMEOUT = 20  # segundos por operación de red (como máximo; baja con lo que queda del plazo)
+PLAZO_TOTAL = 60  # segundos de pared para TODO el descargar()
 TOPE_BYTES = 5 * 1024 * 1024
 TROZO = 8 * 1024  # trozos chicos: el reloj se mira seguido aunque el servidor gotee
 MAX_REDIRECCIONES = 5
 
 
+def _ahora() -> float:
+    return time.monotonic()
+
+
+class PlazoVencido(ErrorDescarga):
+    """Se agotó el plazo total de la descarga."""
+
+
+class Plazo:
+    """Una fecha límite de pared, fijada al crearla."""
+
+    def __init__(self, segundos: float | None = None, reloj=None) -> None:
+        self.segundos = PLAZO_TOTAL if segundos is None else segundos
+        self._reloj = reloj or _ahora
+        self.limite = self._reloj() + self.segundos
+
+    def restante(self) -> float:
+        return self.limite - self._reloj()
+
+    def verificar(self) -> None:
+        if self.restante() <= 0:
+            raise PlazoVencido(f"plazo total de {self.segundos} segundos agotado")
+
+    def timeout(self) -> float:
+        """El timeout para la próxima operación de red: el de siempre, o menos si queda menos."""
+        self.verificar()
+        return max(0.05, min(TIMEOUT, self.restante()))
+
+
 def _exigir_destino(url: str) -> None:
-    """Sólo https y sólo hacia un host de internet pública (nada de localhost, IP privadas ni link-local).
+    """Sólo https, sin usuario ni clave, sin puerto 0 y sólo hacia un host de internet pública
+    (nada de localhost, IP privadas, link-local, multicast ni NAT64).
 
     No cubre un nombre público que resuelva a una IP privada (DNS rebinding): para eso haría
     falta resolver y fijar la IP, y la lista de fuentes es fija y de confianza.
@@ -33,17 +77,119 @@ def _exigir_destino(url: str) -> None:
     try:
         partes = urlsplit(url)
         host = partes.hostname
-        partes.port  # noqa: B018 - un puerto fuera de rango levanta ValueError
+        puerto = partes.port  # un puerto fuera de rango levanta ValueError
+        usuario, clave = partes.username, partes.password
     except ValueError as exc:
         raise ErrorDescarga(f"url ilegible: {url[:200]!r}") from exc
     if partes.scheme.lower() != "https":
         raise ErrorDescarga(f"sólo se lee por https: {url[:200]!r}")
+    if usuario is not None or clave is not None or "@" in partes.netloc:
+        raise ErrorDescarga(f"la url trae usuario o clave: {url[:200]!r}")
+    if puerto == 0:
+        raise ErrorDescarga(f"puerto 0: {url[:200]!r}")
     if not host_publico(host):
         raise ErrorDescarga(f"el destino no es un host público: {url[:200]!r}")
 
 
+# ------------------------------------------------------------- sockets con plazo
+
+
+class _CrudoConPlazo(io.RawIOBase):
+    """La lectura cruda de una respuesta: cada readinto (cada recv) respeta el plazo."""
+
+    def __init__(self, crudo, sock) -> None:
+        super().__init__()
+        self._crudo = crudo
+        self._sock = sock
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, b):
+        self._sock.preparar()
+        return self._crudo.readinto(b)
+
+    def fileno(self):
+        return self._crudo.fileno()
+
+    def close(self) -> None:
+        try:
+            self._crudo.close()  # suelta la referencia que el makefile real le tomó al socket
+        finally:
+            super().close()
+
+
+class SocketConPlazo:
+    """Envuelve un socket: antes de cada operación de red ajusta su timeout al plazo que queda."""
+
+    def __init__(self, sock, plazo: Plazo) -> None:
+        self._sock = sock
+        self._plazo = plazo
+
+    def preparar(self) -> None:
+        self._sock.settimeout(self._plazo.timeout())
+
+    def sendall(self, datos, *args):
+        self.preparar()
+        return self._sock.sendall(datos, *args)
+
+    def send(self, datos, *args):
+        self.preparar()
+        return self._sock.send(datos, *args)
+
+    def recv(self, n, *args):
+        self.preparar()
+        return self._sock.recv(n, *args)
+
+    def recv_into(self, buffer, *args):
+        self.preparar()
+        return self._sock.recv_into(buffer, *args)
+
+    def makefile(self, mode="r", buffering=None, **kwargs):
+        if mode != "rb":
+            return self._sock.makefile(mode, buffering, **kwargs)
+        crudo = self._sock.makefile("rb", buffering=0)
+        return io.BufferedReader(_CrudoConPlazo(crudo, self), io.DEFAULT_BUFFER_SIZE)
+
+    def close(self) -> None:
+        self._sock.close()
+
+    def __getattr__(self, nombre):
+        return getattr(self._sock, nombre)
+
+
+class ConexionConPlazo(http.client.HTTPSConnection):
+    """Una conexión https cuyo socket respeta el plazo total en cada operación."""
+
+    def __init__(self, *args, plazo: Plazo, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._plazo = plazo
+
+    def _socket_crudo(self):
+        """El único punto que toca la red: conectar y negociar TLS."""
+        super().connect()
+        return self.sock
+
+    def connect(self) -> None:
+        self.timeout = self._plazo.timeout()  # conexión y TLS, con lo que quede del plazo
+        self.sock = SocketConPlazo(self._socket_crudo(), self._plazo)
+
+
+class ManejadorHttps(urllib.request.HTTPSHandler):
+    """Abre las conexiones https con `ConexionConPlazo`, todas con el mismo plazo (redirecciones incluidas)."""
+
+    _clase = ConexionConPlazo
+
+    def __init__(self, plazo: Plazo) -> None:
+        super().__init__()
+        self._plazo = plazo
+
+    def https_open(self, req):
+        return self.do_open(partial(self._clase, plazo=self._plazo), req, context=self._context)
+
+
 class SoloHttps(urllib.request.HTTPRedirectHandler):
-    """Sigue redirecciones (hasta cinco) sólo si el destino también es https."""
+    """Sigue redirecciones (hasta cinco) sólo si el destino también es https y de un host público."""
 
     max_redirections = MAX_REDIRECCIONES
 
@@ -52,30 +198,24 @@ class SoloHttps(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-def crear_opener() -> urllib.request.OpenerDirector:
-    return urllib.request.build_opener(SoloHttps())
+def crear_opener(plazo: Plazo | None = None) -> urllib.request.OpenerDirector:
+    return urllib.request.build_opener(SoloHttps(), ManejadorHttps(plazo or Plazo()))
 
 
-def _abrir_real(url: str):
+def _abrir_real(url: str, plazo: Plazo | None = None):
     pedido = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    return crear_opener().open(pedido, timeout=TIMEOUT)
+    return crear_opener(plazo).open(pedido, timeout=TIMEOUT)
 
 
-def _limitar_espera(respuesta, restante: float) -> None:
-    """Mejor esfuerzo: que una lectura bloqueada no pase del plazo restante (timeout del socket)."""
-    try:
-        respuesta.fp.raw._sock.settimeout(max(0.05, min(TIMEOUT, restante)))
-    except (AttributeError, OSError, ValueError):
-        pass  # una respuesta que no es de socket (o ya cerrada): no hay timeout que ajustar
-
-
-def leer_cuerpo(respuesta, tope: int = TOPE_BYTES, plazo: float = PLAZO_TOTAL, reloj=time.monotonic) -> bytes:
+def leer_cuerpo(respuesta, tope: int = TOPE_BYTES, plazo: float | Plazo = PLAZO_TOTAL, reloj=None) -> bytes:
     """Lee la respuesta de a trozos; si pasa el tope o el plazo, error (nunca devuelve algo cortado).
 
-    Usa `read1` (devuelve lo que haya sin esperar a llenar el trozo) y mira el reloj en cada
-    vuelta, así que un servidor que gotea un byte cada tanto no estira la descarga más allá del plazo.
+    Usa `read1` (devuelve lo que haya sin esperar a llenar el trozo) y verifica el plazo en cada
+    vuelta. `plazo` es un `Plazo` (el de `descargar`, que ya cuenta lo gastado en conectar y en las
+    cabeceras) o una cantidad de segundos que empieza a correr acá.
     """
-    inicio = reloj()
+    if not isinstance(plazo, Plazo):
+        plazo = Plazo(plazo, reloj)
     leer = getattr(respuesta, "read1", None) or respuesta.read
     largo = respuesta.headers.get("Content-Length")
     if largo is not None:
@@ -85,10 +225,7 @@ def leer_cuerpo(respuesta, tope: int = TOPE_BYTES, plazo: float = PLAZO_TOTAL, r
     partes: list[bytes] = []
     total = 0
     while True:
-        restante = plazo - (reloj() - inicio)
-        if restante <= 0:
-            raise ErrorDescarga(f"la descarga tardó más de {plazo} segundos")
-        _limitar_espera(respuesta, restante)
+        plazo.verificar()
         trozo = leer(min(TROZO, tope + 1 - total))
         if not trozo:
             break
@@ -111,13 +248,14 @@ def decodificar(cuerpo: bytes, charset: str | None) -> str:
 
 
 def descargar(url: str, abrir=None) -> str:
-    """Baja `url` (https) y devuelve el texto. `abrir` permite inyectar una respuesta falsa."""
+    """Baja `url` (https) y devuelve el texto, todo dentro de PLAZO_TOTAL. `abrir` permite inyectar una respuesta falsa."""
+    plazo = Plazo()  # la fecha límite se fija al entrar y cubre todo lo que sigue
     _exigir_destino(url)
-    abrir = abrir or _abrir_real
+    abrir = abrir or partial(_abrir_real, plazo=plazo)
     try:
         respuesta = abrir(url)
         try:
-            cuerpo = leer_cuerpo(respuesta)
+            cuerpo = leer_cuerpo(respuesta, plazo=plazo)
             charset = respuesta.headers.get_content_charset()
         finally:
             cerrar = getattr(respuesta, "close", None)
@@ -126,5 +264,7 @@ def descargar(url: str, abrir=None) -> str:
     except ErrorDescarga:
         raise
     except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as exc:
+        if plazo.restante() <= 0:  # el timeout del socket venció justo con el plazo
+            raise PlazoVencido(f"plazo total de {plazo.segundos} segundos agotado ({type(exc).__name__})") from exc
         raise ErrorDescarga(f"no se pudo bajar {url[:200]!r}: {type(exc).__name__}: {exc}") from exc
     return decodificar(cuerpo, charset)

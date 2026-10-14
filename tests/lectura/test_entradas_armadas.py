@@ -182,10 +182,49 @@ class XmlHostilTest(unittest.TestCase):
         ext = analizar_atom(ATOM, atom, AHORA)
         self.assertEqual((len(ext.novedades), ext.recortadas), (MAX_ITEMS, 1))
 
-    def test_anidamiento_profundo_no_rompe(self):
-        profundo = "<a>" * 100000 + "x" + "</a>" * 100000
-        ext = analizar_rss(RSS, rss(f"<item><title>{profundo}</title><link>https://ejemplo.test/a</link></item>"), AHORA)
-        self.assertEqual(ext.novedades[0].titulo, "x")
+    def test_el_anidamiento_pasado_el_tope_se_rechaza_y_el_del_tope_se_acepta(self):
+        from radar.lectura.analizar import MAX_PROFUNDIDAD
+
+        def con_niveles(n):  # rss > channel > item > title son 4 niveles; el resto, <a> anidados
+            profundo = "<a>" * n + "x" + "</a>" * n
+            return rss(f"<item><title>{profundo}</title><link>https://ejemplo.test/a</link></item>")
+
+        self.assertEqual(MAX_PROFUNDIDAD, 256)
+        ext = analizar_rss(RSS, con_niveles(MAX_PROFUNDIDAD - 4), AHORA)
+        self.assertEqual(ext.novedades[0].titulo, "x")  # justo en el tope: pasa
+        with self.assertRaises(DocumentoRechazado) as ctx:
+            analizar_rss(RSS, con_niveles(MAX_PROFUNDIDAD - 3), AHORA)  # un nivel más: no
+        self.assertIn("anidado", str(ctx.exception))
+
+    def test_anidamiento_enorme_se_rechaza_rapido_y_sin_memoria(self):
+        import tracemalloc
+
+        profundo = '<rss version="2.0">' + "<a>" * 1_700_000  # unos 5 MB
+        tracemalloc.start()
+        try:
+            inicio = time.monotonic()
+            with self.assertRaises(DocumentoRechazado):
+                parsear_xml(profundo)
+            demora = time.monotonic() - inicio
+            _, pico = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        self.assertLess(demora, 5)
+        self.assertLess(pico, 100 * 1024 * 1024)  # el tope pedido; en la práctica son unos pocos MB
+
+    def test_un_rss_de_5_mb_con_relleno_hostil_en_cdata_tarda_poco(self):
+        relleno = "<" * 19900
+        items = "".join(
+            f"<item><title><![CDATA[{relleno}]]></title><link>https://ejemplo.test/{i}</link>"
+            f"<description><![CDATA[{relleno}]]></description></item>"
+            for i in range(131)
+        )
+        texto = rss(items)
+        self.assertGreater(len(texto), 5_000_000)
+        inicio = time.monotonic()
+        ext = analizar_rss(RSS, texto, AHORA)
+        self.assertLess(time.monotonic() - inicio, 10)
+        self.assertEqual((len(ext.novedades), ext.descartadas), (0, 131))  # el relleno no es un título: se descarta
 
     def test_texto_enorme_se_recorta(self):
         enorme = "palabra " * 200000  # 1,6 MB en un solo título y un solo resumen

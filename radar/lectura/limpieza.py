@@ -20,8 +20,9 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 LARGO_TITULO = 300
 LARGO_FRASE = 400
 MAX_ENLACE = 2048
-# Antes de sacar etiquetas se corta el crudo: acota el trabajo del analizador de HTML.
-TOPE_CRUDO = 20000
+# Antes de sacar etiquetas se corta el crudo (por campo): acota el trabajo del analizador de HTML.
+# Alcanza de sobra para un título (300) y una frase (400); un RSS de 5 MB no puede costar más que eso por ítem.
+TOPE_CRUDO = 4000
 # Una fecha más de un día adelante de "ahora" no puede quedar fija en la ventana.
 MARGEN_FUTURO = timedelta(days=1)
 
@@ -102,6 +103,9 @@ def _depurar(texto: str) -> str:
 # quedar en un texto que se entrega como plano. Se quita el `<` (el resto queda como texto inerte).
 _APERTURA = re.compile(r"<(?=[A-Za-z/!?])")
 MAX_PASADAS = 10
+# Más `<` y `&` que esto en el crudo (4000 caracteres como mucho) no es un título ni un resumen: es
+# relleno hostil (`<<<<...`) que no converge y cuesta las 10 pasadas completas. Se descarta sin parsear.
+MAX_DENSIDAD = 1000
 
 
 def _recortar(texto: str, limite: int) -> str:
@@ -123,6 +127,8 @@ def limpiar_texto(valor, limite: int) -> str:
     if not isinstance(valor, str):
         valor = str(valor)
     texto = valor[:TOPE_CRUDO]
+    if texto.count("<") + texto.count("&") > MAX_DENSIDAD:
+        return ""
     for _ in range(MAX_PASADAS):
         extractor = _SacaEtiquetas()
         try:
@@ -146,7 +152,7 @@ def primera_oracion(texto: str, limite: int = LARGO_FRASE) -> str:
 
 
 def frase_de(valor) -> str:
-    return primera_oracion(limpiar_texto(valor, 5000))
+    return primera_oracion(limpiar_texto(valor, TOPE_CRUDO))
 
 
 def titulo_de(valor) -> str:
@@ -182,6 +188,8 @@ def _esquema_ilegal(texto: str) -> bool:
     return m is not None and m.group(1) not in _ESQUEMAS_OK
 
 
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")  # y 64:ff9b:1::/48, de uso local: traducen hacia IPv4 arbitrarias
+_NAT64_LOCAL = ipaddress.ip_network("64:ff9b:1::/48")
 _ETIQUETA_HOST = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", re.ASCII)
 _SUFIJOS_PRIVADOS = (".localhost", ".local", ".internal", ".localdomain")
 
@@ -197,7 +205,7 @@ def _es_ip(host: str) -> bool:
 def host_publico(host) -> bool:
     """True si `host` (sin corchetes, en minúscula) es un nombre o una IP de internet pública.
 
-    Rechaza: no ASCII (ancho completo, cirílico, `。`: los nombres internacionales van en
+    Rechaza: multicast, NAT64 (64:ff9b::/96 y 64:ff9b:1::/48), no ASCII (ancho completo, cirílico, `。`: los nombres internacionales van en
     punycode), `localhost` y los sufijos internos, hosts sin punto, y toda IP que no sea
     global (loopback, privadas, link-local, CGNAT, reservadas, mapeadas a IPv4 no públicas).
     Una última etiqueta numérica o con forma de número (`127.1`, `0x7f.0.0.1`) se rechaza: un
@@ -213,7 +221,10 @@ def host_publico(host) -> bool:
         ip = None
     if ip is not None:
         mapeada = getattr(ip, "ipv4_mapped", None)
-        return (mapeada or ip).is_global
+        base = mapeada or ip
+        if base.is_multicast or (ip.version == 6 and (ip in _NAT64 or ip in _NAT64_LOCAL)):
+            return False
+        return base.is_global
     if "." not in host or host == "localhost" or host.endswith(_SUFIJOS_PRIVADOS):
         return False
     etiquetas = host.split(".")
@@ -259,7 +270,7 @@ def validar_enlace(valor, base: str | None = None) -> str | None:
     except ValueError:
         return None
     esquema = partes.scheme.lower()
-    if esquema not in _ESQUEMAS_OK or not host or not host_publico(host.lower()):
+    if esquema not in _ESQUEMAS_OK or not host or not host_publico(host.lower()) or puerto == 0:
         return None
     if usuario is not None or clave is not None or "@" in partes.netloc:
         return None

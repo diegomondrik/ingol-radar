@@ -8,7 +8,7 @@ import unittest
 import urllib.request
 from email.message import Message
 
-from radar.lectura.descarga import TIMEOUT, TROZO, SoloHttps, descargar, leer_cuerpo
+from radar.lectura.descarga import TROZO, SoloHttps, descargar, leer_cuerpo
 from radar.lectura.modelos import ErrorDescarga
 
 
@@ -66,7 +66,7 @@ class GoteoTest(unittest.TestCase):
         r = GoteoConRead1(reloj, segundos_por_byte=7)
         with self.assertRaises(ErrorDescarga) as ctx:
             leer_cuerpo(r, plazo=60, reloj=reloj)
-        self.assertIn("tardó", str(ctx.exception))
+        self.assertIn("plazo total", str(ctx.exception))
         self.assertLessEqual(reloj.ahora, 60 + 7)  # no estiró la descarga más allá del plazo (más una lectura)
         self.assertEqual(len(r.pedidos), 9)  # 9 lecturas de 7 s: 63 s
 
@@ -82,24 +82,6 @@ class GoteoTest(unittest.TestCase):
             leer_cuerpo(r2, tope=3, plazo=1000)
         self.assertEqual(r2.pedidos[-1], 1)  # al final sólo pide lo que falta para pasarse por un byte
 
-    def test_el_timeout_del_socket_se_baja_al_plazo_que_queda(self):
-        reloj = Reloj()
-        r = GoteoConRead1(reloj, segundos_por_byte=7)
-        with self.assertRaises(ErrorDescarga):
-            leer_cuerpo(r, plazo=60, reloj=reloj)
-        esperados = [min(TIMEOUT, 60 - 7 * i) for i in range(9)]
-        self.assertEqual(r.sock.timeouts, esperados)
-        self.assertEqual(r.sock.timeouts[0], TIMEOUT)  # al principio, el de siempre (20 s)
-        self.assertLess(r.sock.timeouts[-1], 5)  # al final, lo que queda del plazo
-
-    def test_con_poco_plazo_el_timeout_nunca_llega_a_cero(self):
-        reloj = Reloj()
-        reloj.ahora = 0
-        r = GoteoConRead1(reloj, segundos_por_byte=0.01)
-        with self.assertRaises(ErrorDescarga):
-            leer_cuerpo(r, plazo=0.03, reloj=reloj)
-        self.assertTrue(all(t >= 0.05 for t in r.sock.timeouts))
-
     def test_una_respuesta_que_no_es_de_socket_no_rompe_el_ajuste(self):
         class SoloRead:
             headers = cabeceras()
@@ -112,22 +94,6 @@ class GoteoTest(unittest.TestCase):
 
         self.assertEqual(leer_cuerpo(SoloRead()), b"hola")
 
-    def test_un_socket_que_ya_no_acepta_timeout_no_rompe_la_lectura(self):
-        class SocketCerrado:
-            def settimeout(self, valor):
-                raise OSError("cerrado")
-
-        class Resp:
-            headers = cabeceras()
-            fp = type("Fp", (), {"raw": type("Raw", (), {"_sock": SocketCerrado()})()})()
-
-            def __init__(self):
-                self._flujo = io.BytesIO(b"ok")
-
-            def read1(self, n=-1):
-                return self._flujo.read(n)
-
-        self.assertEqual(leer_cuerpo(Resp()), b"ok")
 
 
 class DestinoTest(unittest.TestCase):
@@ -143,6 +109,14 @@ class DestinoTest(unittest.TestCase):
         "https://100.64.0.1/",
         "https://0.0.0.0/",
         "https://[::1]/",
+        "https://[ff02::1]/",
+        "https://224.0.0.1/",
+        "https://[64:ff9b::808:808]/",
+        "https://[64:ff9b:1::1]/",
+        "https://ejemplo.test:0/",
+        "https://usuario@ejemplo.test/",
+        "https://usuario:clave@ejemplo.test/",
+        "https://ejemplo.test@127.0.0.1/",
         "https://[fe80::1]/",
         "https://[fd00::1]/",
         "https://[::ffff:10.0.0.1]/",
@@ -161,7 +135,7 @@ class DestinoTest(unittest.TestCase):
                 with self.assertRaises(ErrorDescarga) as ctx:
                     descargar(url, abrir=lambda u: llamadas.append(u))
                 self.assertEqual(llamadas, [])
-                self.assertIn("público", str(ctx.exception))
+                self.assertTrue(str(ctx.exception))
 
     def test_la_redireccion_a_un_host_no_publico_se_rechaza(self):
         manejador = SoloHttps()

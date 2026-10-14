@@ -13,6 +13,7 @@ from radar.lectura import por_id
 from radar.lectura import limpieza
 from radar.lectura.analizar import analizar_atom, analizar_rss
 from radar.lectura.limpieza import (
+    MAX_DENSIDAD,
     MAX_PASADAS,
     TOPE_CRUDO,
     fecha_rfc3339,
@@ -179,10 +180,18 @@ class PuntoFijoTest(unittest.TestCase):
         self.assertEqual(limpiar_texto("a︀b️c\U000e0100d\U000e01efe", 300), "abcde")
         self.assertEqual(limpiar_texto("❤️", 300), "❤")
 
-    def test_tope_crudo_el_texto_sale_de_los_primeros_20000_caracteres(self):
-        self.assertEqual(TOPE_CRUDO, 20000)
+    def test_tope_crudo_el_texto_sale_de_los_primeros_4000_caracteres(self):
+        self.assertEqual(TOPE_CRUDO, 4000)
         self.assertEqual(limpiar_texto("x" * TOPE_CRUDO + "COLA", 50000), "x" * TOPE_CRUDO)
         self.assertEqual(limpiar_texto("x" * (TOPE_CRUDO - 4) + "COLA" + "MAS", 50000), "x" * (TOPE_CRUDO - 4) + "COLA")
+
+    def test_un_relleno_de_aperturas_se_descarta_sin_parsear(self):
+        for relleno in ("<" * 3000, "&" * 1500, "<&" * 600, "<!--" * 1100):
+            with self.subTest(relleno[:6]):
+                self.assertEqual(limpiar_texto(relleno, 300), "")
+        self.assertEqual(MAX_DENSIDAD, 1000)
+        # justo en el límite se procesa como cualquier texto
+        self.assertEqual(limpiar_texto("a" + "<b>" * 300, 300), "a")
 
     def test_el_costo_de_los_niveles_es_acotado(self):
         inicio = time.monotonic()
@@ -276,6 +285,26 @@ class HostsTest(unittest.TestCase):
         for malo in (None, "", "localhost", "a", "10.0.0.1", "::1", "fe80::1%eth0", "ejemplo.test%", "ejemplo test", 5):
             with self.subTest(repr(malo)):
                 self.assertFalse(host_publico(malo))
+
+    def test_multicast_nat64_y_puerto_cero_se_rechazan(self):
+        for malo in (
+            "http://224.0.0.1/",
+            "http://239.255.255.250/",
+            "https://[ff02::1]/",
+            "https://[ff0e::1]/",
+            "https://[64:ff9b::808:808]/",  # NAT64: traduce hacia una IPv4 cualquiera
+            "https://[64:ff9b::7f00:1]/",
+            "https://[64:ff9b:1::1]/",  # NAT64 de uso local
+            "https://ejemplo.test:0/",
+            "http://8.8.8.8:0/",
+            "https://[2606:4700:4700::1111]:0/",
+        ):
+            with self.subTest(malo):
+                self.assertIsNone(validar_enlace(malo))
+        for bueno in ("https://ejemplo.test:1/", "https://ejemplo.test:65535/", "http://8.8.8.8:8080/"):
+            self.assertIsNotNone(validar_enlace(bueno), bueno)
+        for ip in ("224.0.0.1", "ff02::1", "64:ff9b::808:808", "64:ff9b:1::1"):
+            self.assertFalse(host_publico(ip), ip)
 
     def test_las_comillas_se_rechazan(self):
         for malo in (

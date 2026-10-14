@@ -1,4 +1,4 @@
-"""La memoria de lo ya visto: un JSON con candado entre procesos y guardado atómico.
+"""La memoria de lo ya visto: un JSON con bloqueo del sistema operativo y guardado atómico.
 
 Formato: {"version": 1, "vistas": {clave: {"fuente", "titulo", "enlace", "primera_vez"}}}
 
@@ -6,43 +6,82 @@ Garantías:
 - un archivo roto, de versión desconocida, de forma inesperada o con claves repetidas nunca se
   resetea ni se pisa: se levanta `MemoriaCorrupta` con la ruta y el motivo. Uno que pasa el tope
   de tamaño es otro caso, `MemoriaDemasiadoGrande`: no está roto, hay que podarlo;
-- el candado (`<ruta>.lock`, creación exclusiva) está en disco, así que vale entre procesos. Guarda
-  el pid de quien lo tiene: si ese proceso ya no existe (una corrida caída, un corte de luz, un
-  reinicio) el candado es huérfano y se toma solo; si el pid está vivo o no se puede leer, es
-  `MemoriaOcupada` y el mensaje dice qué archivo borrar;
+- una sola corrida a la vez: `abrir` abre `<ruta>.lock` (lo crea si falta) y le pide al sistema
+  operativo un bloqueo exclusivo sobre su byte 0 (Windows: msvcrt.locking; POSIX: fcntl.flock); el
+  archivo se mantiene abierto durante todo el `with`. El sistema operativo suelta el bloqueo solo
+  cuando el proceso muere (una corrida caída, un corte de luz, un reinicio): no hay candados
+  huérfanos y no hay que borrar nada a mano. Si el bloqueo está tomado, `MemoriaOcupada`. El archivo
+  `.lock` NO se borra nunca (borrarlo reabriría la carrera: otra corrida podría bloquear un archivo
+  nuevo mientras ésta sigue con el viejo); su contenido no importa y la basura que tenga no molesta.
+  Dentro de un mismo proceso, además, un registro por ruta evita depender de cómo trate el sistema
+  los bloqueos entre descriptores del mismo proceso;
 - `guardar` escribe a un temporal único en el mismo directorio, hace flush y fsync y
   reemplaza de una vez: ante cualquier falla el archivo anterior queda como estaba;
-- la memoria no crece sin límite: `guardar` poda lo visto hace más de DIAS_DE_MEMORIA días.
+- la memoria no crece sin límite: `guardar` poda lo visto hace más de DIAS_DE_MEMORIA días y, si
+  aun así pasa TOPE_ARCHIVO, las más viejas hasta que quepa (expuesto en `podadas_por_edad` y
+  `podadas_por_tamano`); sólo si ni vacía cabe levanta `MemoriaDemasiadoGrande`.
+
+Limitación conocida: el bloqueo depende de que el sistema de archivos lo soporte. En carpetas
+sincronizadas (OneDrive, Dropbox) o en recursos de red (NFS, SMB) el bloqueo puede no valer entre
+máquinas distintas, o fallar; si falla se levanta `MemoriaError` con la explicación en vez de
+trabajar sin exclusión. La memoria tiene que estar en un disco local de la máquina que corre el radar.
 """
 
 from __future__ import annotations
 
+import errno
 import json
 import os
-import re
 import tempfile
-import time
-import uuid
+import threading
 from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+if os.name == "nt":
+    import msvcrt
+
+    fcntl = None
+else:
+    import fcntl
+
+    msvcrt = None
 
 VERSION = 1
 # Anclada a la raíz del repo (radar/memoria/memoria.py -> raíz), no al directorio desde donde se corre.
 RUTA_POR_DEFECTO = Path(__file__).resolve().parents[2] / "generated" / "memoria.json"
 TOPE_ARCHIVO = 64 * 1024 * 1024
 DIAS_DE_MEMORIA = 365
-_CAMPOS = ("fuente", "titulo", "enlace", "primera_vez")
 _ES_WINDOWS = os.name == "nt"
-_PID = re.compile(rb"pid=([0-9]{1,10})\n?")
-_PID_MAXIMO = 2**32 - 1
-_TAMANO_MAXIMO_CANDADO = 64
-_STILL_ACTIVE = 259
-_ERROR_PARAMETRO_INVALIDO = 87  # OpenProcess: no existe un proceso con ese pid
+_CAMPOS = ("fuente", "titulo", "enlace", "primera_vez")
+# Errores con los que el sistema dice "ese bloqueo ya lo tiene otro" (y no "no puedo bloquear").
+_OCUPADO = frozenset(
+    {errno.EACCES, errno.EAGAIN, errno.EWOULDBLOCK, errno.EDEADLK, getattr(errno, "EDEADLOCK", errno.EDEADLK)}
+)
+
+_EN_USO: set[str] = set()
+_CERROJO = threading.Lock()
 
 
 def _ahora() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _bloquear(fd: int) -> None:
+    """Bloqueo exclusivo y sin espera del byte 0. OSError si ya está tomado."""
+    if msvcrt is not None:
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+    else:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def _desbloquear(fd: int) -> None:
+    if msvcrt is not None:
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+    else:
+        fcntl.flock(fd, fcntl.LOCK_UN)
 
 
 class MemoriaError(Exception):
@@ -50,7 +89,7 @@ class MemoriaError(Exception):
 
 
 class MemoriaOcupada(MemoriaError):
-    """Otra corrida tiene el candado de la memoria."""
+    """Otra corrida está usando la memoria."""
 
 
 class MemoriaCorrupta(MemoriaError):
@@ -96,49 +135,29 @@ def _validar(datos, ruta: Path) -> dict[str, dict[str, str]]:
     return vistas
 
 
-def _pid_de(contenido: bytes) -> int | None:
-    """El pid que guarda un candado, o None si el contenido no es exactamente `pid=<número>`."""
-    m = _PID.fullmatch(contenido)
-    if m is None:
-        return None
-    pid = int(m.group(1))
-    return pid if 0 < pid <= _PID_MAXIMO else None
+def _fecha(entrada: dict) -> datetime:
+    primera = datetime.fromisoformat(entrada["primera_vez"])
+    return primera.replace(tzinfo=timezone.utc) if primera.tzinfo is None else primera
 
 
-def _proceso_vivo(pid: int) -> bool:
-    """False sólo si se SABE que el proceso ya no existe; ante la duda, True (el candado se respeta).
+def _serializar(vistas: dict) -> bytes:
+    return json.dumps(
+        {"version": VERSION, "vistas": vistas}, ensure_ascii=False, indent=1, sort_keys=True
+    ).encode("utf-8", "replace") + b"\n"
 
-    En Windows no se usa os.kill (ahí termina el proceso): se abre con OpenProcess y se mira el
-    código de salida. En POSIX, os.kill(pid, 0) no manda ninguna señal, sólo comprueba.
+
+def _peso(clave: str, entrada: dict) -> int:
+    """Cuántos bytes ocupa una vista en el archivo (con su coma y su salto de línea), exacto.
+
+    En el JSON con sangría de 1 y claves ordenadas, una vista a profundidad 2 es:
+    `  "clave": {` + sus campos con 3 espacios + `  }` + `,` y salto de línea. Como cada línea de la
+    vista suelta (sangría 1) gana 2 espacios en su lugar, el peso es el de la clave, el de la vista
+    suelta, 2 por cada salto de línea de ésta y las constantes de la sangría, el `: ` y la coma con
+    su salto de línea.
     """
-    if _ES_WINDOWS:
-        import ctypes
-        from ctypes import wintypes
-
-        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        k32.OpenProcess.restype = wintypes.HANDLE
-        k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
-        k32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
-        k32.GetExitCodeProcess.restype = wintypes.BOOL
-        k32.CloseHandle.argtypes = [wintypes.HANDLE]
-        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-        manejador = k32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-        if not manejador:
-            return ctypes.get_last_error() != _ERROR_PARAMETRO_INVALIDO
-        try:
-            codigo = wintypes.DWORD()
-            if not k32.GetExitCodeProcess(manejador, ctypes.byref(codigo)):
-                return True
-            return codigo.value == _STILL_ACTIVE
-        finally:
-            k32.CloseHandle(manejador)
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except (PermissionError, OSError, OverflowError):
-        return True  # existe pero no es nuestro, o no se sabe: se respeta
-    return True
+    suelta = json.dumps(entrada, ensure_ascii=False, indent=1, sort_keys=True)
+    texto = json.dumps(clave, ensure_ascii=False)
+    return len(texto.encode("utf-8", "replace")) + len(suelta.encode("utf-8", "replace")) + 2 * suelta.count("\n") + 6
 
 
 class Memoria:
@@ -146,13 +165,20 @@ class Memoria:
 
     Flujo: nuevas -> analizar -> marcar sólo lo analizado -> guardar. Lo que no se analizó
     no se marca: así vuelve a salir como nueva en la próxima corrida y no se pierde.
+
+    Después de cada `guardar`, `podadas_por_edad` y `podadas_por_tamano` dicen cuántas vistas se
+    borraron en ese guardado.
     """
 
-    def __init__(self, ruta: Path, vistas: dict[str, dict[str, str]], candado: Path) -> None:
+    def __init__(self, ruta: Path, vistas: dict[str, dict[str, str]], candado: Path, fd: int, clave: str) -> None:
         self.ruta = ruta
         self._vistas = vistas
         self._candado = candado
+        self._fd: int | None = fd
+        self._clave = clave
         self._abierta = True
+        self.podadas_por_edad = 0
+        self.podadas_por_tamano = 0
 
     # ---------------------------------------------------------------- abrir y cerrar
 
@@ -161,92 +187,51 @@ class Memoria:
         ruta = Path(ruta)
         candado = ruta.with_name(ruta.name + ".lock")
         ruta.parent.mkdir(parents=True, exist_ok=True)
-        fd = cls._tomar_candado(ruta, candado)
+        clave = os.path.normcase(os.path.realpath(candado))
+        with _CERROJO:
+            if clave in _EN_USO:
+                raise cls._ocupada(ruta, candado)
+            _EN_USO.add(clave)
+        fd = None
         try:
+            fd = os.open(candado, os.O_RDWR | os.O_CREAT | getattr(os, "O_BINARY", 0), 0o644)
             try:
-                os.write(fd, f"pid={os.getpid()}\n".encode())
-            finally:
-                os.close(fd)
-            return cls(ruta, cls._cargar(ruta), candado)
+                _bloquear(fd)
+            except OSError as exc:
+                if exc.errno in _OCUPADO:
+                    raise cls._ocupada(ruta, candado) from None
+                raise MemoriaError(
+                    f"El sistema de archivos no permite bloquear {candado} ({exc}): la memoria tiene que "
+                    "estar en un disco local, no en una carpeta sincronizada ni en un recurso de red."
+                ) from exc
+            return cls(ruta, cls._cargar(ruta), candado, fd, clave)
         except BaseException:
-            cls._soltar(candado)  # sólo el candado que acabamos de crear nosotros
+            cls._liberar(fd, clave)
             raise
 
-    @classmethod
-    def _tomar_candado(cls, ruta: Path, candado: Path) -> int:
-        """Crea `<ruta>.lock` con O_EXCL, o retira antes uno huérfano. Si no, `MemoriaOcupada`."""
-        for _ in range(3):
-            try:
-                return cls._crear_candado(candado)
-            except FileExistsError:
-                pass
-            if not cls._retirar_huerfano(candado):
-                break
-        raise MemoriaOcupada(
-            f"La memoria {ruta} está en uso: existe el candado {candado}. Si no hay otra corrida "
-            f"andando, quedó de una corrida caída: borrá el archivo {candado} y reintentá."
+    @staticmethod
+    def _ocupada(ruta: Path, candado: Path) -> MemoriaOcupada:
+        return MemoriaOcupada(
+            f"La memoria {ruta} la está usando otra corrida (bloqueo de {candado}). Esperá a que termine y "
+            "reintentá. Si esa corrida se cayó, el sistema operativo ya soltó el bloqueo: no hay que borrar nada."
         )
 
     @staticmethod
-    def _crear_candado(candado: Path) -> int:
-        """O_EXCL. `FileExistsError` si ya está tomado."""
-        intentos = 20 if _ES_WINDOWS else 1
-        for intento in range(intentos):
-            try:
-                return os.open(candado, os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_BINARY", 0), 0o644)
-            except PermissionError:
-                # En Windows, crear un archivo cuyo borrado está pendiente (otra corrida lo está
-                # soltando justo ahora) da "acceso denegado" en vez de "ya existe": se reintenta un
-                # momento; un permiso realmente negado sigue negado y sale como el error que es.
-                if intento + 1 < intentos:
-                    time.sleep(0.005)
-                    continue
-                if os.path.lexists(candado):
-                    raise FileExistsError(str(candado)) from None
-                raise
-        raise AssertionError("inalcanzable")  # pragma: no cover
-
-    @staticmethod
-    def _retirar_huerfano(candado: Path) -> bool:
-        """Retira un candado cuyo pid ya no existe. True si se puede volver a intentar tomarlo.
-
-        Se retira con un rename atómico a un nombre único, no con un borrado: de varias corridas
-        que lo ven huérfano al mismo tiempo, sólo una consigue el rename. Después se verifica que
-        lo retirado es lo mismo que se juzgó muerto; si en el medio otra corrida ya lo había
-        tomado de nuevo (ventana muy chica), se lo devuelve y se respeta.
-        """
+    def _liberar(fd: int | None, clave: str) -> None:
+        """Desbloquea y cierra (sin borrar el archivo de candado) y deja la ruta libre en el registro."""
         try:
-            with open(candado, "rb") as archivo:
-                contenido = archivo.read(_TAMANO_MAXIMO_CANDADO + 1)
-        except FileNotFoundError:
-            return True  # lo soltaron mientras tanto: a intentar de nuevo
-        except OSError:
-            return False
-        pid = _pid_de(contenido)
-        if pid is None or _proceso_vivo(pid):
-            return False
-        retirado = candado.with_name(f"{candado.name}.huerfano.{uuid.uuid4().hex}")
-        try:
-            os.rename(candado, retirado)
-        except FileNotFoundError:
-            return True
-        except OSError:
-            return False
-        try:
-            igual = retirado.read_bytes() == contenido
-            if not igual:
+            if fd is not None:
                 try:
-                    os.link(retirado, candado)  # devolverlo: era de otra corrida, ya viva
+                    _desbloquear(fd)
+                except OSError:
+                    pass  # cerrar el descriptor lo suelta igual
+                try:
+                    os.close(fd)
                 except OSError:
                     pass
-            return igual
-        except OSError:
-            return False
         finally:
-            try:
-                os.unlink(retirado)
-            except OSError:
-                pass
+            with _CERROJO:
+                _EN_USO.discard(clave)
 
     @staticmethod
     def _cargar(ruta: Path) -> dict[str, dict[str, str]]:
@@ -267,26 +252,11 @@ class Memoria:
             ) from exc
         return _validar(datos, ruta)
 
-    @staticmethod
-    def _soltar(candado: Path) -> None:
-        """Borra el candado propio. En Windows, otra corrida que justo lo está leyendo para ver si
-        es huérfano impide el borrado un instante (acceso denegado): se reintenta hasta ~1 s."""
-        intentos = 100 if _ES_WINDOWS else 1
-        for intento in range(intentos):
-            try:
-                os.unlink(candado)
-                return
-            except FileNotFoundError:
-                return
-            except PermissionError:
-                if intento + 1 == intentos:
-                    raise
-                time.sleep(0.01)
-
     def cerrar(self) -> None:
         if self._abierta:
             self._abierta = False
-            self._soltar(self._candado)
+            fd, self._fd = self._fd, None
+            self._liberar(fd, self._clave)
 
     def __enter__(self) -> "Memoria":
         return self
@@ -330,36 +300,55 @@ class Memoria:
             agregadas += 1
         return agregadas
 
-    def _podar(self, ahora: datetime) -> int:
+    @staticmethod
+    def _podar_por_edad(vistas: dict, ahora: datetime) -> int:
         limite = ahora - timedelta(days=DIAS_DE_MEMORIA)
-        viejas = []
-        for clave, entrada in self._vistas.items():
-            primera = datetime.fromisoformat(entrada["primera_vez"])
-            if primera.tzinfo is None:
-                primera = primera.replace(tzinfo=timezone.utc)
-            if primera < limite:
-                viejas.append(clave)
+        viejas = [clave for clave, entrada in vistas.items() if _fecha(entrada) < limite]
         for clave in viejas:
-            del self._vistas[clave]
+            del vistas[clave]
         return len(viejas)
 
-    def guardar(self, ahora: datetime | None = None) -> int:
-        """Poda lo visto hace más de DIAS_DE_MEMORIA días y escribe de forma atómica. Devuelve cuántas podó.
+    @staticmethod
+    def _podar_por_tamano(vistas: dict, contenido: bytes) -> tuple[bytes, int]:
+        """Si `contenido` pasa el tope, borra las más viejas hasta que quepa. Devuelve (contenido, cuántas)."""
+        if len(contenido) <= TOPE_ARCHIVO:
+            return contenido, 0
+        orden = sorted(vistas, key=lambda clave: (_fecha(vistas[clave]), clave))  # las más viejas primero
+        exceso = len(contenido) - TOPE_ARCHIVO
+        borradas = 0
+        for clave in orden:  # el peso de cada vista se calcula; no se reserializa todo cientos de veces
+            if exceso <= 0:
+                break
+            exceso -= _peso(clave, vistas[clave])
+            del vistas[clave]
+            borradas += 1
+        contenido = _serializar(vistas)
+        while len(contenido) > TOPE_ARCHIVO and borradas < len(orden):
+            paso = max(1, len(orden) // 100)  # la estimación se quedó corta: un poco más
+            for clave in orden[borradas : borradas + paso]:
+                del vistas[clave]
+            borradas = min(len(orden), borradas + paso)
+            contenido = _serializar(vistas)
+        return contenido, borradas
 
-        Si el resultado pasa TOPE_ARCHIVO (un archivo que `abrir` no leería), levanta
-        `MemoriaDemasiadoGrande` sin tocar el archivo anterior.
+    def guardar(self, ahora: datetime | None = None) -> int:
+        """Poda y escribe de forma atómica. Devuelve cuántas vistas podó en total.
+
+        Poda lo visto hace más de DIAS_DE_MEMORIA días (`podadas_por_edad`) y, si el archivo aun así
+        pasaría TOPE_ARCHIVO, las más viejas hasta que quepa (`podadas_por_tamano`). Sólo si ni vacío
+        cabe (un tope absurdo) levanta `MemoriaDemasiadoGrande`, sin tocar el archivo anterior ni la
+        memoria en uso.
         Escritura atómica: temporal único en el mismo directorio, flush, fsync y os.replace.
         """
         if not self._abierta:
             raise MemoriaError("la memoria ya está cerrada")
-        podadas = self._podar(ahora or _ahora())
-        contenido = json.dumps(
-            {"version": VERSION, "vistas": self._vistas}, ensure_ascii=False, indent=1, sort_keys=True
-        ).encode("utf-8", "replace") + b"\n"
+        trabajo = dict(self._vistas)  # se poda una copia: si algo falla, la memoria en uso no cambia
+        por_edad = self._podar_por_edad(trabajo, ahora or _ahora())
+        contenido, por_tamano = self._podar_por_tamano(trabajo, _serializar(trabajo))
         if len(contenido) > TOPE_ARCHIVO:
             raise MemoriaDemasiadoGrande(
-                f"La memoria {self.ruta} pasaría de {TOPE_ARCHIVO} bytes ({len(contenido)}) y `abrir` no la "
-                "leería. No se escribió nada; el archivo anterior sigue como estaba."
+                f"La memoria {self.ruta} no cabe en {TOPE_ARCHIVO} bytes ni vacía ({len(contenido)}). "
+                "No se escribió nada; el archivo anterior sigue como estaba."
             )
         directorio = self.ruta.parent
         fd, temporal = tempfile.mkstemp(dir=directorio, prefix=self.ruta.name + ".", suffix=".tmp")
@@ -380,8 +369,10 @@ class Memoria:
             except FileNotFoundError:
                 pass
             raise
+        self._vistas = trabajo
+        self.podadas_por_edad, self.podadas_por_tamano = por_edad, por_tamano
         self._sincronizar_directorio(directorio)
-        return podadas
+        return por_edad + por_tamano
 
     @staticmethod
     def _sincronizar_directorio(directorio: Path) -> None:

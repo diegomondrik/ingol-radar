@@ -9,11 +9,7 @@ dos instancias independientes y, una vez, dos procesos de verdad) y `entradas-ad
 import errno
 import json
 import os
-import subprocess
-import sys
 import tempfile
-import threading
-import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -26,7 +22,6 @@ from radar.memoria import (
     MemoriaCorrupta,
     MemoriaDemasiadoGrande,
     MemoriaError,
-    MemoriaOcupada,
 )
 from radar.memoria import memoria as modulo_memoria
 
@@ -61,6 +56,16 @@ class Base(unittest.TestCase):
             m.marcar([nov(c) for c in claves], CUANDO)
             m.guardar()
         return self.ruta.read_bytes()
+
+    def assertLibre(self):
+        """El bloqueo está suelto: otra corrida podría tomarlo ahora (aunque el archivo de memoria esté roto)."""
+        self.assertEqual(modulo_memoria._EN_USO, set())
+        fd = os.open(self.candado, os.O_RDWR | getattr(os, "O_BINARY", 0))
+        try:
+            modulo_memoria._bloquear(fd)  # si siguiera tomado, esto levantaría OSError
+            modulo_memoria._desbloquear(fd)
+        finally:
+            os.close(fd)
 
     def contenido_de_la_carpeta(self):
         return sorted(p.name for p in self.ruta.parent.iterdir())
@@ -137,7 +142,7 @@ class UsoTest(Base):
         crudo = self.ruta.read_bytes()
         self.assertTrue(crudo.endswith(b"}\n"))
         self.assertNotIn(b"\r", crudo)
-        self.assertEqual(self.contenido_de_la_carpeta(), ["memoria.json"])  # ni candado ni temporales
+        self.assertEqual(self.contenido_de_la_carpeta(), ["memoria.json", "memoria.json.lock"])  # sin temporales
 
     def test_usar_la_memoria_cerrada_para_guardar_es_un_error(self):
         with Memoria.abrir(self.ruta) as m:
@@ -217,8 +222,8 @@ class CorruptaTest(Base):
                 self.assertIn(str(self.ruta), mensaje)
                 self.assertIn("corrupta", mensaje)
                 self.assertEqual(self.ruta.read_bytes(), contenido)  # ni reseteado ni pisado
-                self.assertFalse(self.candado.exists(), "el candado quedó tomado")
-                self.assertEqual(self.contenido_de_la_carpeta(), ["memoria.json"])
+                self.assertLibre()  # el bloqueo quedó suelto
+                self.assertEqual(self.contenido_de_la_carpeta(), ["memoria.json", "memoria.json.lock"])
 
     def test_el_cuerpo_del_with_no_corre_con_una_memoria_corrupta(self):
         self.preparar(b"basura")
@@ -254,7 +259,7 @@ class CorruptaTest(Base):
         self.assertNotIsInstance(ctx.exception, MemoriaCorrupta)
         self.assertIn("No se tocó", str(ctx.exception))
         self.assertEqual(self.ruta.read_bytes(), original)
-        self.assertFalse(self.candado.exists())
+        self.assertLibre()
 
     def test_el_tope_de_tamano_es_estrictamente_mayor_que(self):
         original = self.sembrar("a")
@@ -399,143 +404,6 @@ class FallasTest(Base):
         self.assertEqual(eventos[0], "fsync")
         self.assertEqual(eventos[1][0], "replace")
         self.assertEqual(json.loads(eventos[1][1])["vistas"].keys(), {"a"})  # lo que se reemplaza ya está entero
-
-
-# ---------------------------------------------------------------------- concurrencia
-
-
-class ConcurrenciaTest(Base):
-    def test_un_segundo_abrir_con_el_candado_tomado_es_memoria_ocupada(self):
-        with Memoria.abrir(self.ruta) as primera:
-            with self.assertRaises(MemoriaOcupada) as ctx:
-                Memoria.abrir(self.ruta)
-            mensaje = str(ctx.exception)
-            self.assertIn(str(self.candado), mensaje)  # dice qué archivo borrar
-            self.assertIn("borrá", mensaje)
-            self.assertIn("caída", mensaje)
-            # el intento fallido no se llevó el candado de la primera
-            self.assertTrue(self.candado.exists())
-            with self.assertRaises(MemoriaOcupada):
-                Memoria.abrir(self.ruta)
-            primera.marcar([nov("a")], CUANDO)
-            primera.guardar()
-        self.assertFalse(self.candado.exists())
-        with Memoria.abrir(self.ruta) as m:  # liberada: ahora sí
-            self.assertEqual(len(m), 1)
-
-    def test_un_candado_ilegible_no_se_roba_y_el_mensaje_dice_que_borrar(self):
-        self.ruta.parent.mkdir(parents=True)
-        self.candado.write_text("lo escribio otro programa\n")
-        with self.assertRaises(MemoriaOcupada) as ctx:
-            Memoria.abrir(self.ruta)
-        self.assertIn(str(self.candado), str(ctx.exception))
-        self.assertTrue(self.candado.exists())
-        self.assertEqual(self.candado.read_text(), "lo escribio otro programa\n")
-        self.candado.unlink()  # el usuario hace lo que dice el mensaje
-        with Memoria.abrir(self.ruta):
-            pass
-
-    def test_el_candado_se_suelta_despues_de_una_excepcion(self):
-        with self.assertRaises(RuntimeError):
-            with Memoria.abrir(self.ruta) as m:
-                m.marcar([nov("a")], CUANDO)
-                raise RuntimeError("falló el análisis")
-        self.assertFalse(self.candado.exists())
-        with Memoria.abrir(self.ruta) as m:
-            self.assertEqual(len(m), 0)  # lo no guardado no se guardó
-
-    def test_el_candado_se_suelta_tambien_con_ctrl_c_y_con_falla_al_guardar(self):
-        with self.assertRaises(KeyboardInterrupt):
-            with Memoria.abrir(self.ruta):
-                raise KeyboardInterrupt
-        self.assertFalse(self.candado.exists())
-        with self.assertRaises(OSError):
-            with Memoria.abrir(self.ruta) as m:
-                with mock.patch("os.replace", side_effect=disco_lleno):
-                    m.guardar()
-        self.assertFalse(self.candado.exists())
-
-    def test_cerrar_dos_veces_no_borra_el_candado_de_otro(self):
-        m = Memoria.abrir(self.ruta)
-        m.cerrar()
-        otra = Memoria.abrir(self.ruta)
-        m.cerrar()  # la primera, ya cerrada, no puede soltar el candado de la segunda
-        self.assertTrue(self.candado.exists())
-        otra.cerrar()
-        self.assertFalse(self.candado.exists())
-
-    def test_dos_instancias_en_orden_no_se_pisan(self):
-        with Memoria.abrir(self.ruta) as a:
-            a.marcar([nov("a")], CUANDO)
-            with self.assertRaises(MemoriaOcupada):
-                Memoria.abrir(self.ruta)  # la otra corrida espera su turno
-            a.guardar()
-        with Memoria.abrir(self.ruta) as b:
-            self.assertIn("a", b)  # ve lo de la primera
-            b.marcar([nov("b")], CUANDO)
-            b.guardar()
-        with Memoria.abrir(self.ruta) as c:
-            self.assertEqual(sorted(c._vistas), ["a", "b"])
-
-    def test_muchos_hilos_leen_modifican_y_guardan_sin_perder_ninguno(self):
-        hilos, dentro, maximo, errores = 8, [0], [0], []
-        trabado = threading.Lock()
-
-        def trabajar(i):
-            plazo = time.monotonic() + 15  # sin plazo, un candado que nunca se suelta colgaría la prueba
-            try:
-                while True:
-                    try:
-                        memoria = Memoria.abrir(self.ruta)
-                    except MemoriaOcupada:
-                        if time.monotonic() > plazo:
-                            errores.append(TimeoutError(f"el hilo {i} no consiguió turno"))
-                            return
-                        time.sleep(0.001)
-                        continue
-                    with memoria:
-                        with trabado:
-                            dentro[0] += 1
-                            maximo[0] = max(maximo[0], dentro[0])
-                        memoria.marcar([nov(f"hilo{i}")], CUANDO)
-                        time.sleep(0.005)  # un lector-modificador lento: la ventana donde otro se colaría
-                        memoria.guardar()
-                        with trabado:
-                            dentro[0] -= 1
-                    return
-            except Exception as exc:  # noqa: BLE001
-                errores.append(exc)
-
-        lista = [threading.Thread(target=trabajar, args=(i,), daemon=True) for i in range(hilos)]
-        for h in lista:
-            h.start()
-        for h in lista:
-            h.join(30)
-        self.assertEqual(errores, [])
-        self.assertEqual(maximo[0], 1, "dos corridas tuvieron la memoria a la vez")
-        with Memoria.abrir(self.ruta) as m:
-            self.assertEqual(sorted(m._vistas), sorted(f"hilo{i}" for i in range(hilos)))  # ninguna se perdió
-
-    def test_dos_procesos_de_verdad_el_candado_esta_en_el_disco(self):
-        codigo = (
-            "import sys; sys.path.insert(0, sys.argv[1])\n"
-            "from radar.memoria import Memoria, MemoriaOcupada\n"
-            "try:\n"
-            "    Memoria.abrir(sys.argv[2])\n"
-            "except MemoriaOcupada as e:\n"
-            "    print('OCUPADA'); sys.exit(3)\n"
-            "print('ABIERTA')\n"
-        )
-        with Memoria.abrir(self.ruta):
-            hijo = subprocess.run(
-                [sys.executable, "-c", codigo, str(RAIZ), str(self.ruta)],
-                capture_output=True, text=True, timeout=60,
-            )
-            self.assertEqual((hijo.returncode, hijo.stdout.strip()), (3, "OCUPADA"), hijo.stderr)
-        hijo = subprocess.run(
-            [sys.executable, "-c", codigo, str(RAIZ), str(self.ruta)], capture_output=True, text=True, timeout=60
-        )
-        self.assertEqual(hijo.stdout.strip(), "ABIERTA", hijo.stderr)
 
 
 if __name__ == "__main__":

@@ -34,6 +34,8 @@ _MEDIA = "{http://search.yahoo.com/mrss/}"
 _CONTENT = "{http://purl.org/rss/1.0/modules/content/}"
 _DC = "{http://purl.org/dc/elements/1.1/}"
 
+TROZO_XML = 64 * 1024
+MAX_PROFUNDIDAD = 256  # niveles de elementos; un feed real no pasa de unos diez
 _ESPACIO_XML = " \t\r\n"
 _DOCTYPE = re.compile(r"<!\s*DOCTYPE", re.IGNORECASE)
 # Enlaces que no son una página para leer: el propio documento Atom, su edición, sus comentarios.
@@ -41,7 +43,25 @@ _REL_NO_LEGIBLES = frozenset({"self", "edit", "replies"})
 
 
 class _Constructor(ET.TreeBuilder):
-    """Segunda barrera: si el analizador de XML llega a ver un DOCTYPE, lo rechaza."""
+    """Segunda barrera: si el analizador de XML llega a ver un DOCTYPE, lo rechaza.
+
+    También cuenta la profundidad: un documento más anidado que MAX_PROFUNDIDAD se rechaza apenas
+    se llega a ese nivel, sin construir el árbol (1,7 millones de `<a>` anidados caben en 5 MB).
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._profundidad = 0
+
+    def start(self, tag, attrs):
+        self._profundidad += 1
+        if self._profundidad > MAX_PROFUNDIDAD:
+            raise DocumentoRechazado(f"el documento está anidado a más de {MAX_PROFUNDIDAD} niveles")
+        return super().start(tag, attrs)
+
+    def end(self, tag):
+        self._profundidad -= 1
+        return super().end(tag)
 
     def doctype(self, name, pubid, system):
         raise DocumentoRechazado("el documento trae DOCTYPE: se rechaza")
@@ -85,7 +105,11 @@ def parsear_xml(texto: str) -> ET.Element:
     _revisar_prologo(texto)
     parser = ET.XMLParser(target=_Constructor())
     try:
-        parser.feed(texto)
+        # Por trozos: ante un error del constructor (profundidad, DOCTYPE) el analizador de C no se
+        # detiene hasta terminar el trozo que está leyendo; con el documento entero seguiría
+        # acumulando niveles en su pila aunque ya lo hayamos rechazado.
+        for inicio in range(0, len(texto), TROZO_XML):
+            parser.feed(texto[inicio : inicio + TROZO_XML])
         return parser.close()
     except DocumentoRechazado:
         raise

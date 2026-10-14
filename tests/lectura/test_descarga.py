@@ -161,7 +161,7 @@ class TopeTest(unittest.TestCase):
         tiempos = iter(range(0, 1000, 30))  # cada lectura "tarda" 30 s
         with self.assertRaises(ErrorDescarga) as ctx:
             leer_cuerpo(r, plazo=60, reloj=lambda: next(tiempos))
-        self.assertIn("tardó", str(ctx.exception))
+        self.assertIn("plazo total", str(ctx.exception))
 
     def test_el_error_de_tope_es_un_error_propio_de_la_lectura(self):
         self.assertTrue(issubclass(ErrorDescarga, ErrorLectura))
