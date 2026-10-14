@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Recorte mínimo armado a mano: la misma fuente el día B, repite el dos y el tres y suma el cuatro y el cinco. No es una captura real. -->
+<rss version="2.0">
+  <channel>
+    <title>Fuente de prueba</title>
+    <item>
+      <title>Novedad cinco</title>
+      <link>https://ejemplo.test/cinco</link>
+      <guid>ej-5</guid>
+      <pubDate>Fri, 09 Oct 2026 10:00:00 GMT</pubDate>
+      <description>Frase del cinco.</description>
+    </item>
+    <item>
+      <title>Novedad cuatro</title>
+      <link>https://ejemplo.test/cuatro</link>
+      <guid>ej-4</guid>
+      <pubDate>Thu, 08 Oct 2026 10:00:00 GMT</pubDate>
+      <description>Frase del cuatro.</description>
+    </item>
+    <item>
+      <title>Novedad tres (título editado)</title>
+      <link>https://ejemplo.test/tres</link>
+      <guid>ej-3</guid>
+      <pubDate>Wed, 07 Oct 2026 10:00:00 GMT</pubDate>
+      <description>Frase del tres.</description>
+    </item>
+    <item>
+      <title>Novedad dos</title>
+      <link>https://ejemplo.test/dos</link>
+      <guid>ej-2</guid>
+      <pubDate>Tue, 06 Oct 2026 10:00:00 GMT</pubDate>
+      <description>Frase del dos.</description>
+    </item>
+  </channel>
+</rss>
