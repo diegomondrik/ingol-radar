@@ -1,8 +1,14 @@
-"""`python -m radar.analisis --afinado <json> [--salida <ruta>]` o `--idea "<texto>"`
+"""`python -m radar.analisis --afinado <json> [--articulos <carpeta> | --sin-articulos] [--salida <ruta>]`
+o `python -m radar.analisis --idea "<texto>"`
 
 Corre el análisis REAL (claude, con la cuota del owner) sobre las novedades de un archivo de afinado
 o sobre una idea, y muestra un resumen. Del archivo usa sólo los campos de la novedad: `esperado`
 y lo demás no viaja al modelo. No toca la memoria ni arma la página (eso es del trabajo 4).
+
+Dos pasadas: la primera con título y frase; la segunda, de a una y sólo para las que dieron «sí» o
+«tal vez», con el texto del artículo. Por defecto el artículo se baja de internet (sólo del mismo
+sitio que la fuente); con `--articulos <carpeta>` se lee de `<carpeta>/<clave>.txt` (afinado
+reproducible, sin red); con `--sin-articulos` no hay segunda pasada.
 
 Código de salida: 0 todo analizado; 2 alguna novedad quedó sin analizar; 1 error o corrida cortada.
 """
@@ -12,12 +18,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from radar.lectura.articulo import ERROR, MIN_TEXTO, OK, SIN_TEXTO, Articulo, leer_articulo, texto_plano
+from radar.lectura.descarga import descargar
 from radar.lectura.limpieza import LARGO_FRASE, LARGO_TITULO, fecha_de_numeros, limpiar_texto, validar_enlace
 from radar.lectura.modelos import Novedad
 
@@ -28,6 +37,7 @@ from .prompt import RAIZ, cargar_contexto
 
 SALIDA_POR_DEFECTO = RAIZ / "generated" / "afinado"
 MAX_ARCHIVO = 2_000_000
+_CLAVE_DE_ARCHIVO = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}", re.ASCII)
 
 
 class ErrorAfinado(ErrorAnalisis):
@@ -79,6 +89,30 @@ def cargar_afinado(ruta: Path) -> tuple[list[Novedad], dict[str, dict]]:
     return novedades, esperados
 
 
+def lector_de_carpeta(carpeta: Path):
+    """Un lector de artículos que lee `<carpeta>/<clave>.txt` (para afinar sin red). Nunca lanza."""
+    carpeta = Path(carpeta)
+
+    def leer(nov: Novedad) -> Articulo:
+        if not _CLAVE_DE_ARCHIVO.fullmatch(nov.clave) or ".." in nov.clave:
+            return Articulo(estado=ERROR, motivo="la clave no sirve como nombre de archivo")
+        ruta = carpeta / f"{nov.clave}.txt"
+        try:
+            if ruta.is_symlink() or not ruta.is_file():
+                return Articulo(estado=ERROR, motivo=f"no hay {nov.clave}.txt en la carpeta de artículos")
+            if ruta.stat().st_size > MAX_ARCHIVO:
+                return Articulo(estado=ERROR, motivo=f"{nov.clave}.txt pesa más de {MAX_ARCHIVO} bytes")
+            crudo = ruta.read_text(encoding="utf-8-sig")
+        except (OSError, UnicodeDecodeError) as exc:
+            return Articulo(estado=ERROR, motivo=f"no se pudo leer {nov.clave}.txt: {type(exc).__name__}")
+        texto, recortado = texto_plano(crudo)
+        if len(texto) < MIN_TEXTO:
+            return Articulo(estado=SIN_TEXTO, motivo=f"{nov.clave}.txt trae menos de {MIN_TEXTO} caracteres")
+        return Articulo(estado=OK, texto=texto, recortado=recortado)
+
+    return leer
+
+
 def _destino_nuevo(carpeta: Path, ahora: datetime) -> Path:
     """Un `analisis-<marca>.json` que no existe: la marca llega a los microsegundos y, si aun así existe
     (dos corridas en el mismo instante), se agrega `-2`, `-3`... Se reserva con creación exclusiva para que
@@ -118,12 +152,17 @@ def _resumen(resultado: Resultado, segundos: float, esperados: dict[str, dict], 
         f"Analizadas: {len(resultado.analizadas)}  Sin analizar: {len(resultado.sin_analizar)}  "
         f"Tiempo: {segundos:.0f} s\n"
         f"Llamadas: {c['llamadas']}  reintentos: {c['reintentos']}  aisladas: {c['aisladas']}  "
+        f"segundas: {c['segundas']} (fallidas {c['segundas_fallidas']}, sin tope {c['sin_segunda_por_tope']})  "
         f"fallidas: {c['fallidas']}  ignoradas: {c['ignoradas']}  por tope: {c['por_tope']}\n"
     )
     if resultado.abortada:
         salida.write(f"CORRIDA CORTADA: {resultado.abortada}\n")
     for clave, a in resultado.analizadas.items():
-        linea = f"  {clave:<10} sirve={a.sirve:<7} ruido={'si' if a.ruido else 'no':<2} confianza={a.confianza:<5} base={a.base}"
+        estado = a.articulo.estado if a.articulo else "-"
+        linea = (
+            f"  {clave:<10} pasada={a.pasada} articulo={estado:<14} sirve={a.sirve:<7} "
+            f"ruido={'si' if a.ruido else 'no':<2} confianza={a.confianza:<5} base={a.base}"
+        )
         if a.sospecha_de_instrucciones:
             linea += "  SOSPECHA_DE_INSTRUCCIONES"
         esp = esperados.get(clave)
@@ -139,7 +178,15 @@ def _ahora() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def main(argv=None, runner=cliente.ejecutar, contexto: str | None = None, salida=None, reloj=time.monotonic, ahora=_ahora) -> int:
+def main(
+    argv=None,
+    runner=cliente.ejecutar,
+    contexto: str | None = None,
+    salida=None,
+    reloj=time.monotonic,
+    ahora=_ahora,
+    fetcher=descargar,
+) -> int:
     salida = salida or sys.stdout
     parser = argparse.ArgumentParser(
         prog="python -m radar.analisis",
@@ -150,14 +197,27 @@ def main(argv=None, runner=cliente.ejecutar, contexto: str | None = None, salida
     grupo.add_argument("--idea", help="una idea propia del owner para analizar")
     parser.add_argument("--salida", type=Path, help="dónde escribir el resultado en JSON (por defecto, generated/afinado/)")
     parser.add_argument("--contexto", type=Path, help="ruta del contexto de INGOL (por defecto, material/contexto-ingol.md)")
+    articulos = parser.add_mutually_exclusive_group()
+    articulos.add_argument(
+        "--articulos", type=Path, help="carpeta con <clave>.txt: el texto del artículo de cada novedad (sin red, para afinar)"
+    )
+    articulos.add_argument("--sin-articulos", action="store_true", help="sólo la primera pasada, sin leer artículos")
     args = parser.parse_args(argv)
+    if args.idea is not None and (args.articulos is not None or args.sin_articulos):
+        parser.error("--articulos y --sin-articulos son para --afinado")
 
     try:
         texto_contexto = contexto if contexto is not None else cargar_contexto(args.contexto)
         inicio = reloj()
         if args.afinado is not None:
             novedades, esperados = cargar_afinado(args.afinado)
-            resultado = analizador.analizar(novedades, runner=runner, contexto=texto_contexto)
+            if args.sin_articulos:
+                lector = None
+            elif args.articulos is not None:
+                lector = lector_de_carpeta(args.articulos)
+            else:
+                lector = lambda nov: leer_articulo(nov, fetcher)  # noqa: E731 - el artículo real, de internet
+            resultado = analizador.analizar(novedades, runner=runner, contexto=texto_contexto, lector_articulo=lector)
         else:
             esperados = {}
             resultado = analizador.analizar_idea(args.idea, runner=runner, contexto=texto_contexto)

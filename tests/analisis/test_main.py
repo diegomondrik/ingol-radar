@@ -12,8 +12,9 @@ from unittest import mock
 from radar.analisis import __main__ as cli
 from radar.analisis import prompt
 from radar.analisis.errores import ErrorClaude
+from radar.lectura.modelos import Novedad
 
-from .ayudas import CONTEXTO, RunnerFalso, item_valido
+from .ayudas import CONTEXTO, RunnerFalso, datos_del_usuario, item_valido
 
 AFINADO = {
     "nota": "prueba",
@@ -380,6 +381,173 @@ class TestGuardado(unittest.TestCase):
         self.assertEqual(len(datos["analizadas"]), 5)
         self.assertEqual(len(datos["sin_analizar"]), 2)
         self.assertIn("Ctrl+C", datos["contadores"]["abortada"])
+
+
+class TestArticulosEnLaLinea(unittest.TestCase):
+    """--articulos <carpeta>, --sin-articulos y la segunda pasada por defecto (con un fetcher falso)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+        self.afinado = self.dir / "afinado.json"
+        datos = {
+            "novedades": [
+                {
+                    "clave": "t-01",
+                    "fuente": "anthropic-noticias",
+                    "titulo": "Un método de revisión",
+                    "frase": "",
+                    "fecha": "2026-10-01",
+                    "enlace": "https://www.anthropic.com/news/a",
+                    "esperado": "si",
+                    "aceptable": ["si", "tal_vez"],
+                },
+                {
+                    "clave": "t-02",
+                    "fuente": "anthropic-noticias",
+                    "titulo": "Caso de cliente",
+                    "frase": "",
+                    "fecha": "2026-10-02",
+                    "enlace": "https://www.anthropic.com/news/b",
+                    "esperado": "no",
+                    "aceptable": ["no"],
+                },
+            ]
+        }
+        self.afinado.write_text(json.dumps(datos), encoding="utf-8")
+        self.articulos = self.dir / "articulos"
+        self.articulos.mkdir()
+        self.salida = self.dir / "s.json"
+
+    def runner(self):
+        def funcion(items):
+            segunda = any("texto_del_articulo" in p for p in items)
+            salida = []
+            for p in items:
+                no = p["titulo"].startswith("Caso")
+                salida.append(
+                    item_valido(
+                        p["clave"],
+                        sirve="no" if no else "si",
+                        ruido=no,
+                        base="articulo" if segunda else "titulo",
+                    )
+                )
+            return {"analisis": salida}
+
+        return RunnerFalso(funcion)
+
+    def correr(self, extra, runner=None, fetcher=None):
+        runner = runner or self.runner()
+        salida = io.StringIO()
+        kwargs = {"fetcher": fetcher} if fetcher else {}
+        argv = ["--afinado", str(self.afinado), "--salida", str(self.salida), *extra]
+        codigo = cli.main(argv, runner=runner, contexto=CONTEXTO, salida=salida, **kwargs)
+        return codigo, salida.getvalue(), runner
+
+    def test_con_una_carpeta_la_segunda_pasada_lee_clave_punto_txt_sin_red(self):
+        (self.articulos / "t-01.txt").write_text("Texto del artículo de la primera.\n\nOtro párrafo, bastante largo.", encoding="utf-8")
+        codigo, texto, runner = self.correr(["--articulos", str(self.articulos)])
+        self.assertEqual(codigo, 0)
+        self.assertEqual([len(c["aliases"]) for c in runner.llamadas], [2, 1])
+        item = datos_del_usuario(runner.llamadas[1]["usuario"])[0]
+        self.assertEqual(item["texto_del_articulo"], "Texto del artículo de la primera.\nOtro párrafo, bastante largo.")
+        datos = json.loads(self.salida.read_text(encoding="utf-8"))
+        self.assertEqual(datos["analizadas"]["t-01"]["pasada"], 2)
+        self.assertEqual(datos["analizadas"]["t-01"]["articulo"]["estado"], "leido")
+        self.assertEqual(datos["analizadas"]["t-02"]["pasada"], 1)
+        self.assertEqual(datos["analizadas"]["t-02"]["articulo"]["estado"], "no_corresponde")
+
+    def test_el_resumen_muestra_por_clave_pasada_articulo_sirve_y_esperado(self):
+        (self.articulos / "t-01.txt").write_text("Texto del artículo de la primera, largo de verdad.", encoding="utf-8")
+        _, texto, _ = self.correr(["--articulos", str(self.articulos)])
+        self.assertRegex(texto, r"t-01 +pasada=2 articulo=leido +sirve=si .*esperado=si \(ok\)")
+        self.assertRegex(texto, r"t-02 +pasada=1 articulo=no_corresponde +sirve=no .*esperado=no \(ok\)")
+
+    def test_si_falta_el_archivo_queda_la_primera_con_el_estado_error(self):
+        codigo, texto, runner = self.correr(["--articulos", str(self.articulos)])
+        self.assertEqual(codigo, 0)
+        self.assertEqual(len(runner.llamadas), 1)
+        self.assertRegex(texto, r"t-01 +pasada=1 articulo=error")
+        datos = json.loads(self.salida.read_text(encoding="utf-8"))
+        self.assertIn("t-01.txt", datos["analizadas"]["t-01"]["articulo"]["motivo"])
+
+    def test_un_archivo_corto_o_que_no_es_utf8_no_sirve(self):
+        (self.articulos / "t-01.txt").write_bytes(b"\xff\xfe\x00bad")
+        _, texto, _ = self.correr(["--articulos", str(self.articulos)])
+        self.assertRegex(texto, r"t-01 +pasada=1 articulo=error")
+        (self.articulos / "t-01.txt").write_text("corto", encoding="utf-8")
+        _, texto, _ = self.correr(["--articulos", str(self.articulos)])
+        self.assertRegex(texto, r"t-01 +pasada=1 articulo=sin_texto")
+
+    def test_el_archivo_se_limpia_y_se_recorta_como_cualquier_articulo(self):
+        sucio = "Línea <script>alert(1)</script> con ‮ basura\x00 y " + "palabra " * 4000
+        (self.articulos / "t-01.txt").write_text(sucio, encoding="utf-8")
+        _, _, runner = self.correr(["--articulos", str(self.articulos)])
+        item = datos_del_usuario(runner.llamadas[1]["usuario"])[0]
+        self.assertTrue(item["articulo_recortado"])
+        self.assertLessEqual(len(item["texto_del_articulo"]), 12_000)
+        for malo in ("<", "‮", "\x00", "alert"):
+            self.assertNotIn(malo, item["texto_del_articulo"])
+
+    def test_sin_articulos_es_solo_la_primera_pasada(self):
+        codigo, texto, runner = self.correr(["--sin-articulos"])
+        self.assertEqual(codigo, 0)
+        self.assertEqual(len(runner.llamadas), 1)
+        self.assertRegex(texto, r"t-01 +pasada=1 articulo=desactivado")
+
+    def test_por_defecto_baja_el_articulo_real_con_el_fetcher_y_solo_del_mismo_sitio(self):
+        bajados = []
+
+        def fetcher(url, host=None):
+            bajados.append((url, host))
+            return "<html><body><article><p>Texto del artículo bajado de internet, largo de verdad.</p></article></body></html>"
+
+        codigo, texto, runner = self.correr([], fetcher=fetcher)
+        self.assertEqual(codigo, 0)
+        self.assertEqual(bajados, [("https://www.anthropic.com/news/a", "anthropic.com")])  # t-02 dijo «no»: no se baja
+        self.assertRegex(texto, r"t-01 +pasada=2 articulo=leido")
+
+    def test_el_fetcher_que_falla_deja_la_primera_pasada(self):
+        def fetcher(url, host=None):
+            raise ErrorClaude("no importa el tipo: es una falla")
+
+        codigo, texto, runner = self.correr([], fetcher=fetcher)
+        self.assertEqual(codigo, 0)
+        self.assertRegex(texto, r"t-01 +pasada=1 articulo=error")
+
+    def test_las_dos_opciones_a_la_vez_o_con_idea_no_se_aceptan(self):
+        for extra in (
+            ["--articulos", str(self.articulos), "--sin-articulos"],
+        ):
+            with self.subTest(extra), self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                cli.main(["--afinado", str(self.afinado), *extra], runner=RunnerFalso(), contexto=CONTEXTO, salida=io.StringIO())
+        for extra in (["--sin-articulos"], ["--articulos", str(self.articulos)]):
+            with self.subTest(extra), self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                cli.main(["--idea", "x", *extra], runner=RunnerFalso(), contexto=CONTEXTO, salida=io.StringIO())
+
+    def test_el_nombre_de_archivo_sale_de_la_clave_y_no_se_sale_de_la_carpeta(self):
+        for clave in ("../secreto", "a/b", "..", ".oculto", "a\\b", "x" * 200, "con espacio", "ñ"):
+            with self.subTest(clave):
+                lector = cli.lector_de_carpeta(self.articulos)
+                (self.dir / "secreto.txt").write_text("SECRETO " * 20, encoding="utf-8")
+                nov = Novedad(fuente="x", clave=clave, titulo="t", enlace="", fecha=None, frase="")
+                a = lector(nov)
+                self.assertNotEqual(a.estado, "ok")
+                self.assertNotIn("SECRETO", a.texto)
+
+    def test_un_enlace_simbolico_no_se_sigue(self):
+        objetivo = self.dir / "fuera.txt"
+        objetivo.write_text("CONTENIDO-DE-AFUERA " * 10, encoding="utf-8")
+        enlace = self.articulos / "t-01.txt"
+        try:
+            enlace.symlink_to(objetivo)
+        except (OSError, NotImplementedError):
+            self.skipTest("este sistema no permite crear enlaces simbólicos")
+        nov = Novedad(fuente="x", clave="t-01", titulo="t", enlace="", fecha=None, frase="")
+        a = cli.lector_de_carpeta(self.articulos)(nov)
+        self.assertNotEqual(a.estado, "ok")
 
 
 if __name__ == "__main__":
