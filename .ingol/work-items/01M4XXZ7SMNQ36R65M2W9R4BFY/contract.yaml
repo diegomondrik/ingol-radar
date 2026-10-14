@@ -1,0 +1,32 @@
+schema_version: "1"
+id: 01M4XXZ7SMNQ36R65M2W9R4BFY
+objective: "Trabajo 3: analisis de cada novedad con Claude en dos pasadas, con lectura del articulo"
+lane: controlled
+affected_surfaces:
+  - "docs/propuesta.html"
+  - "docs/propuesta.md"
+  - "radar/analisis/__init__.py"
+  - "radar/analisis/__main__.py"
+  - "radar/analisis/analizador.py"
+  - "radar/analisis/cliente.py"
+  - "radar/analisis/errores.py"
+  - "radar/analisis/esquema.py"
+  - "radar/analisis/modelos.py"
+  - "radar/analisis/prompt.py"
+  - "radar/analisis/senal.py"
+  - "radar/lectura/articulo.py"
+  - "radar/lectura/descarga.py"
+  - "tests/analisis/__init__.py"
+  - "tests/analisis/ayudas.py"
+  - "tests/analisis/test_analizador.py"
+  - "tests/analisis/test_cliente.py"
+  - "tests/analisis/test_esquema.py"
+  - "tests/analisis/test_main.py"
+  - "tests/analisis/test_prompt.py"
+  - "tests/analisis/test_segunda_pasada.py"
+  - "tests/analisis/test_senal.py"
+  - "tests/lectura/test_articulo.py"
+  - ".ingol/work-items/01M4XXZ7SMNQ36R65M2W9R4BFY/**"
+acceptance:
+  - id: AC01
+    description: "The change does what the title says and the project's automatic checks pass."
