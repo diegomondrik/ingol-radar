@@ -20,3 +20,5 @@ sensitive_paths:
   - AGENTS.md
   - .mcp.json
   - .github/CODEOWNERS
+  - radar/lectura/**
+  - radar/analisis/**
