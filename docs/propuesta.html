@@ -247,7 +247,7 @@ footer{border-top:1px solid var(--line);margin-top:48px;padding:20px 0 40px;colo
       <div class="work"><div class="dot">0</div><div class="body"><h3>Esta propuesta <span class="badge b-norm">normal</span></h3>
         <code>docs/propuesta.md</code><div class="lane">critical: no · lane: standard · approvals: none · fast: no</div></div></div>
       <div class="work crit"><div class="dot">1</div><div class="body"><h3>Marcar lo sensible <span class="badge b-crit">crítico · tu firma</span></h3>
-        Escribe las zonas y las rutas sensibles (parte 9). <code>.ingol/policies/project-level.yaml</code> <code>.ingol/policies/fast-lane.yaml</code>
+        Escribe las dos rutas sensibles (parte 9). <code>.ingol/policies/fast-lane.yaml</code> <code>docs/propuesta.md</code> <code>docs/propuesta.html</code>
         <div class="lane">critical: yes · lane: controlled · approvals: owner_approval · fast: no</div></div></div>
       <div class="work crit"><div class="dot">2</div><div class="body"><h3>Lectura y memoria <span class="badge b-norm">hoy normal</span> <span class="badge b-crit">después del 1: tu firma</span></h3>
         Pruebas sobre recortes de las fuentes, dos ventanas seguidas y entradas armadas a propósito. <code>radar/lectura/**</code> <code>radar/memoria/**</code> <code>tests/lectura/**</code>
@@ -305,11 +305,11 @@ footer{border-top:1px solid var(--line);margin-top:48px;padding:20px 0 40px;colo
     <p class="sub">Nivel 1, personal: una herramienta tuya, en tu máquina, sin datos de terceros. Que el repositorio sea
       público no cambia el nivel.<span class="cite">CLAUDE.md · pedido · supuesto</span></p>
     <div class="card tree">
-      <div class="f">radar/lectura/** <span class="badge b-warn">zona 2</span><span class="badge b-crit">ruta sensible</span></div>
-      <div class="f">radar/analisis/** <span class="badge b-warn">zona 2</span><span class="badge b-crit">ruta sensible</span></div>
-      <div class="f">radar/memoria/** <span class="badge b-warn">zona 2</span></div>
-      <div class="f">radar/pagina/** <span class="badge b-warn">zona 2</span></div>
-      <div class="legend" style="font-family:system-ui"><span><span class="badge b-warn">zona 2</span> un cambio normal ahí lleva revisión de otro agente</span><span><span class="badge b-crit">ruta sensible</span> un cambio ahí es crítico y pide tu firma</span><span class="cite">pedido · nivel 2 y memoria/página: supuesto</span></div>
+      <div class="f">radar/lectura/** <span class="badge b-crit">ruta sensible</span></div>
+      <div class="f">radar/analisis/** <span class="badge b-crit">ruta sensible</span></div>
+      <div class="f">radar/memoria/** <span class="badge b-norm">normal, con revisión de código</span></div>
+      <div class="f">radar/pagina/** <span class="badge b-norm">normal, con revisión de código</span></div>
+      <div class="legend" style="font-family:system-ui"><span><span class="badge b-crit">ruta sensible</span> un cambio ahí es crítico y pide tu firma</span><span>Sin zonas: una de nivel 2 subiría la exigencia de todo el proyecto (medido); lo decidiste el 2026-10-14.</span><span class="cite">pedido · aprobación</span></div>
     </div>
   </section>
 
@@ -348,7 +348,8 @@ footer{border-top:1px solid var(--line);margin-top:48px;padding:20px 0 40px;colo
   <section id="aprobacion" class="approve">
     <h2>Aprobación</h2>
     <p style="margin:0">Aprobada antes del primer cambio de código.</p>
-    <dl><dt>Quién</dt><dd>Carlos Diego Mondrik, owner de INGOL</dd><dt>Fecha</dt><dd>2026-10-14</dd><dt>Sus palabras</dt><dd>«aprobada la propuesta para el radar.»</dd></dl>
+    <dl><dt>Quién</dt><dd>Carlos Diego Mondrik, owner de INGOL</dd><dt>Fecha</dt><dd>2026-10-14</dd><dt>Sus palabras</dt><dd>«aprobada la propuesta para el radar.»</dd>
+      <dt>Cambio</dt><dd>2026-10-14, antes del trabajo 1: sin zonas, sólo las dos rutas sensibles. «ok con la opcion de la decision»</dd></dl>
   </section>
 </main>
 

@@ -73,7 +73,7 @@ el PR [pedido: "su salida va en el texto del PR"].
 | # | Trabajo | Superficies (rutas concretas) | Lo que dice `ingol work lane` (2026-10-14) |
 |---|---|---|---|
 | 0 | Esta propuesta | `docs/propuesta.md` | critical: no; lane: standard; approvals: none; fast: no |
-| 1 | Zonas y rutas sensibles de la parte 9 | `.ingol/policies/project-level.yaml`, `.ingol/policies/fast-lane.yaml` | critical: yes; lane: controlled; approvals: owner_approval; fast: no |
+| 1 | Rutas sensibles de la parte 9 | `.ingol/policies/fast-lane.yaml`, `docs/propuesta.md`, `docs/propuesta.html` | critical: yes; lane: controlled; approvals: owner_approval; fast: no |
 | 2 | Lectura y memoria, con pruebas sobre recortes, dos ventanas seguidas y entradas armadas | `radar/lectura/**`, `radar/memoria/**`, `tests/lectura/**` | critical: no; lane: standard; approvals: none; fast: no |
 | 3 | Análisis con Claude, con pruebas de entradas armadas | `radar/analisis/**`, `tests/analisis/**` | critical: no; lane: standard; approvals: none; fast: no |
 | 4 | Página, comando y primer resumen | `radar/pagina/**`, `radar/__main__.py`, `tests/pagina/**`, `README.md` | critical: no; lane: standard; approvals: none; fast: no |
@@ -128,9 +128,8 @@ fecha dentro de esas cuatro semanas, no una lista del owner [supuesto].
 
 - Nivel 1, personal [archivo: CLAUDE.md — "Nivel 1: personal"]: una herramienta del owner, en su máquina [pedido],
   sin datos de terceros [pedido]; el repositorio público no cambia el nivel [supuesto].
-- Zonas de nivel 2 [supuesto], para que un cambio normal ahí lleve revisión: `radar/lectura/**` y `radar/analisis/**`
-  [pedido: "La parte que lee las fuentes y la que habla con un modelo"], y `radar/memoria/**` y `radar/pagina/**`, que
-  guardan y muestran texto de internet [supuesto].
+- Zonas: ninguna. Una zona de nivel 2 subiría el piso del camino crítico de todo el proyecto (se midió con el
+  verificador el 2026-10-14); el owner eligió no ponerlas (ver «Aprobación»).
 - Rutas sensibles: `radar/lectura/**` y `radar/analisis/**` [pedido: "son las rutas sensibles que escribe el primer
   trabajo"].
 
@@ -148,3 +147,5 @@ fecha dentro de esas cuatro semanas, no una lista del owner [supuesto].
 - Quién: Carlos Diego Mondrik, owner de INGOL
 - Fecha: 2026-10-14
 - Sus palabras: "aprobada la propuesta para el radar."
+- Cambio aprobado el 2026-10-14, antes del trabajo 1: sin zonas, sólo las dos rutas sensibles (parte 9). Sus palabras:
+  "ok con la opcion de la decision"
