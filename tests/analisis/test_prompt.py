@@ -172,6 +172,21 @@ class TestSistema(unittest.TestCase):
             "En un boletín o resumen, cada ítem útil va a donde corresponde según lo que toca: la gobernanza del desarrollo "
             "con agentes va a EXTERNAL_LANDSCAPE; una herramienta para proyectos, a calidad automática por proyecto.",
         ],
+        "Q1 cifras con su base": [
+            "Cada cifra dice sobre qué es: sobre cuántos casos, en qué experimento o en qué app.",
+            "No pongas juntas cifras de casos distintos como si se compararan.",
+            "No resumas 'el resto es X' si el texto trae algo más.",
+        ],
+        "Q2 coherencia entre campos": [
+            "Los campos de un mismo ítem no se contradicen.",
+            "Si la acción suma algo a una habilidad o a la calidad automática por proyecto, `mejora_software` no es 'no'.",
+            "En un boletín, si el resumen inicial y el cuerpo difieren, manda el cuerpo.",
+        ],
+        "Q3 confianza de los tal vez": [
+            "Si el veredicto es 'tal_vez' porque falta el contenido, la confianza es 'baja'.",
+            "Un dato de adaptador de un solo proveedor, sin detalle, que podría superponerse con algo que INGOL construye, "
+            "es 'tal_vez'; si no hay forma de que se superponga, 'no'.",
+        ],
         "delimitadores": [prompt.INICIO_DATOS, prompt.FIN_DATOS],
     }
 
